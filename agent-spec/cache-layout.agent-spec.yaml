@@ -1,0 +1,345 @@
+# Canonical specification — greenfield cache layout for all data domains.
+# Supersedes the OSM-specific manifest.json-per-cache-type design.
+# Per-entry sidecars eliminate shared manifest locks and scale to
+# multi-server concurrent downloads.
+
+identity:
+  name: cache-layout
+  kind: system-contract
+  canonical_id: "sha256:5908c27c9e015e615eb659effcaa73edd8473a88316a9ed6da64f1110946f8b5"
+  version: 1
+
+purpose: |
+  A uniform on-disk (or on-HDFS) layout for cached artifacts across
+  every data domain Facetwork ingests — OSM, health, demographics,
+  voting, parcels, elevation, GTFS, and future additions. The design
+  replaces the per-cache-type manifest.json plus fcntl lock with
+  per-entry sidecar files so that N servers downloading N different
+  artifacts never contend. Each artifact has exactly one sidecar,
+  a consistent directory-mirrors-source-hierarchy rule gives every
+  derived artifact a predictable path, and an optional lazy index
+  keeps listing cheap for large cache types.
+
+# ---------------------------------------------------------------------------
+# Top-level roots.
+# ---------------------------------------------------------------------------
+roots:
+  data_root:
+    env_var: "AFL_DATA_ROOT"
+    defaults:
+      local: "/Volumes/afl_data"
+      hdfs: "/user/afl"
+    description: "The single filesystem root. All derived roots below are computed from it."
+
+  derived:
+    cache_root:
+      path: "AFL_DATA_ROOT/cache"
+      env_var_override: "AFL_CACHE_ROOT"
+      purpose: "Durable cached artifacts. Safe to delete per-entry; re-derivable from source."
+    staging_root:
+      path: "AFL_DATA_ROOT/staging"
+      env_var_override: "AFL_STAGING_ROOT"
+      purpose: "In-flight downloads and builds. Atomically renamed into cache_root on success."
+    tmp_root:
+      path: "AFL_DATA_ROOT/tmp"
+      env_var_override: "AFL_TMP_ROOT"
+      purpose: "Scratch working area. Safe to wipe at any time."
+    indexes_root:
+      path: "AFL_DATA_ROOT/_indexes"
+      env_var_override: "AFL_INDEXES_ROOT"
+      purpose: "Lazy, rebuildable cache-type indexes. Never authoritative."
+    locks_root:
+      path: "AFL_DATA_ROOT/locks"
+      env_var_override: "AFL_LOCKS_ROOT"
+      purpose: "Per-entry fcntl lock targets. Only created for same-entry overwrite contention."
+
+# ---------------------------------------------------------------------------
+# Namespace and cache_type hierarchy.
+# ---------------------------------------------------------------------------
+hierarchy:
+  shape: "cache/<namespace>/<cache_type>/<relative_path>"
+  rules:
+    - "namespace is a short domain identifier (osm, health, demographics, voting, parcels, gtfs, elevation). Free-form — adding a namespace does not bump the spec version."
+    - "cache_type distinguishes artifact kinds within a namespace (pbf, geojson, shapefiles, extract, graphhopper, valhalla, osrm, vector_tiles, html, claims, results, registrations, ...)"
+    - "relative_path mirrors the SOURCE hierarchy. For OSM, it mirrors the Geofabrik path (north-america/us/california-latest.osm.pbf). For derived artifacts, it mirrors the same relative path under the new cache_type root, so lineage is visible in the path alone."
+    - "Derived cache types use the same relative_path as their primary upstream, stripping or translating the upstream extension as appropriate. Example: pbf/north-america/us/california-latest.osm.pbf derives geojson/north-america/us/california/<layer>.geojson."
+    - "Clips and other user-defined derivations live in their own sibling cache_type (pbf-clips/) rather than nesting under the source cache_type. This keeps each cache_type root pure."
+
+# ---------------------------------------------------------------------------
+# Sidecar metadata.
+# ---------------------------------------------------------------------------
+sidecar:
+  filename_rule: "For any artifact at path X (file or directory), the sidecar lives at X.meta.json. For directory artifacts, the sidecar is a SIBLING of the directory, never a file inside it."
+  example_file: "california-latest.osm.pbf plus california-latest.osm.pbf.meta.json"
+  example_directory: "california/ (directory) plus california.meta.json (sibling)"
+  rationale: "One rule, no special cases. Directory artifacts stay pure payload, which matters for build tools that scan the directory (GraphHopper, Valhalla)."
+
+  schema:
+    format: "JSON (UTF-8)"
+    required_fields:
+      version:
+        type: "int"
+        description: "Sidecar schema version. 1 for all current sidecars."
+      namespace:
+        type: "string"
+        description: "Owning namespace (osm, health, ...). Redundant with path but useful for standalone inspection."
+      cache_type:
+        type: "string"
+        description: "Owning cache_type within the namespace."
+      relative_path:
+        type: "string"
+        description: "Path of the artifact relative to the cache_type root. Matches the on-disk location."
+      kind:
+        type: "string"
+        values:
+          - "file"
+          - "directory"
+        description: "Whether the artifact is a single file or a directory tree."
+      size_bytes:
+        type: "int"
+        description: "Size of the artifact. For directories, total bytes of the tree."
+      sha256:
+        type: "hex_string"
+        description: "SHA-256 of the artifact. For directories, SHA-256 of the primary payload file (per-cache-type rule; see cache_type_variants)."
+      generated_at:
+        type: "ISO-8601 UTC"
+        description: "When this sidecar was written. A re-download updates generated_at."
+    optional_fields:
+      source:
+        type: "struct"
+        description: "Lineage. Points at the UPSTREAM sidecar by relative path within its (namespace, cache_type). Replaces the old manifest-entries key reference."
+        shape_fields:
+          - "namespace — upstream namespace"
+          - "cache_type — upstream cache_type"
+          - "relative_path — upstream relative_path"
+          - "sha256 — upstream sha256 at time of derivation"
+          - "size_bytes"
+          - "source_checksum — original publisher checksum (algo, value, url) for root artifacts"
+          - "source_timestamp — ISO-8601 UTC or null"
+          - "downloaded_at — ISO-8601 UTC (root artifacts only)"
+      tool:
+        type: "struct"
+        description: "Which tool or binary, at which version, produced this artifact."
+        shape_fields:
+          - "command"
+          - "version"
+          - "tool-specific fields"
+      extra:
+        type: "struct"
+        description: "Cache-type-specific fields that do not fit the baseline. Free-form."
+
+# ---------------------------------------------------------------------------
+# Write protocol (no shared lock).
+# ---------------------------------------------------------------------------
+write_protocol:
+  happy_path:
+    - "Writer computes destination cache path D and staging path S under AFL_STAGING_ROOT with the same relative layout."
+    - "Writer creates parent directories under staging_root."
+    - "Writer downloads or builds into S (streaming, no memory buffer required)."
+    - "Writer computes sha256 and size; constructs sidecar dict."
+    - "Writer atomically renames S to D. Same-filesystem rename is atomic; cross-FS falls back to copy-then-rename with fsync (Storage abstraction handles this)."
+    - "Writer writes the sidecar via write_text_atomic to D.meta.json (tempfile plus os.replace)."
+    - "No global lock is acquired at any point."
+
+  directory_artifacts:
+    - "Build into staging_root/<namespace>/<cache_type>/<relative_path>/ until complete."
+    - "Atomically rename the staging directory into cache_root."
+    - "Write the sibling <relative_path>.meta.json via write_text_atomic."
+    - "Backends without atomic directory rename (HDFS without proper RENAME semantics on directories) fall back to finalize_dir_from_local (documented in storage.agent-spec.yaml) or raise NotImplementedError in v1."
+
+  same_entry_contention:
+    description: "Two writers attempting to replace the same entry at the same time. Rare — typically a retry or a forced re-download."
+    protocol:
+      - "Writer takes an fcntl exclusive lock on AFL_LOCKS_ROOT/<namespace>/<cache_type>/<relative_path>.lock."
+      - "Lock is created on demand. The locks_root tree is NEVER read as cache state — it only coordinates writers."
+      - "After rename + sidecar write, the lock is released. The lock file itself is left in place (no unlink race)."
+    rationale: "Locking only when two writers want the same key keeps the common case (N writers, N different keys) fully lock-free."
+
+  crash_recovery:
+    - "staging_root files orphaned by a crashed writer are safe to delete. Staging is transient."
+    - "A cache_root artifact without a matching sidecar is treated as INCOMPLETE by readers (is_valid returns False). Clean-up task may delete such orphans, or the next writer overwrites."
+    - "A sidecar without a matching artifact is likewise treated as INCOMPLETE and is safe to delete."
+
+# ---------------------------------------------------------------------------
+# Read protocol.
+# ---------------------------------------------------------------------------
+read_protocol:
+  single_entry:
+    - "Compute path D from (namespace, cache_type, relative_path)."
+    - "Read D.meta.json. Missing sidecar means the entry is not cached."
+    - "If caller wants to verify currency, check that D exists and its size equals sidecar.size_bytes. Checking sha256 is optional and expensive."
+    - "No lock required."
+
+  listing_all_entries:
+    option_a_walk:
+      description: "Walk the cache_type directory and collect all *.meta.json files. Parse each."
+      cost: "O(N) directory listings plus N small file reads. Fine up to ~10k entries."
+    option_b_index:
+      description: "Read AFL_INDEXES_ROOT/<namespace>/<cache_type>.index.json (lazy). If any sidecar mtime is newer than the index mtime, rebuild the index."
+      cost: "O(1) read in the common case. O(N) rebuild when stale."
+      rebuild_trigger: "Explicit call to rebuild_index(namespace, cache_type), or readers that encounter a stale index. Rebuild itself is idempotent and safe to run concurrently from multiple servers (last-writer-wins on the index file)."
+
+  concurrent_readers: "Unbounded. No locks. A reader may observe a sidecar for an entry whose artifact is still being written by another server only if the writer violates the rename-then-sidecar order; the order above prevents this."
+
+# ---------------------------------------------------------------------------
+# Index files.
+# ---------------------------------------------------------------------------
+indexes:
+  path: "AFL_INDEXES_ROOT/<namespace>/<cache_type>.index.json"
+  status: "non-authoritative cache. Never used for correctness. Safe to delete."
+  shape:
+    top_level:
+      version: "int — index schema version, 1 currently"
+      generated_at: "ISO-8601 UTC"
+      namespace: "string"
+      cache_type: "string"
+      entries: "object keyed by relative_path, each value a sidecar summary (relative_path, size_bytes, sha256, generated_at)"
+  rebuild_algorithm:
+    - "Walk cache_root/<namespace>/<cache_type>/ collecting *.meta.json."
+    - "Parse each; build entries map."
+    - "write_text_atomic to AFL_INDEXES_ROOT/<namespace>/<cache_type>.index.json."
+  staleness_check: "Compare index mtime against newest *.meta.json mtime under the cache_type subtree. Rebuild if any sidecar is newer."
+
+# ---------------------------------------------------------------------------
+# Locks.
+# ---------------------------------------------------------------------------
+locks:
+  when_used: "Only when a writer wants to OVERWRITE an existing entry. New-entry writes never acquire a lock."
+  path: "AFL_LOCKS_ROOT/<namespace>/<cache_type>/<relative_path>.lock"
+  backend:
+    local: "fcntl.flock LOCK_EX."
+    hdfs: "no-op. HDFS assumes single-writer for overwrites in v1."
+  lifetime: "Acquired for the duration of the rename plus sidecar write. Not for the download itself (downloads happen into staging with no lock)."
+  cleanup: "Lock files are never deleted. A stale lock file with no active holder is a no-op for new writers."
+
+# ---------------------------------------------------------------------------
+# Per-namespace conventions.
+# ---------------------------------------------------------------------------
+namespaces:
+  osm:
+    cache_types:
+      - "pbf (mirrors Geofabrik path, e.g. north-america/us/california-latest.osm.pbf)"
+      - "pbf-clips (custom clips, relative_path chosen by tool)"
+      - "geojson (one subdir per region, one file per layer)"
+      - "shapefiles"
+      - "extract (category extracts: healthcare, parks, roads_routable, ...)"
+      - "graphhopper (directory artifact per region)"
+      - "valhalla (directory artifact per region)"
+      - "osrm (directory artifact per region)"
+      - "vector_tiles (single pmtiles file per region)"
+      - "html (directory artifact per map)"
+    path_convention: "mirrors Geofabrik hierarchy for pbf. All derived cache_types use the same relative_path (stripping -latest.osm.pbf and adding cache-type-specific suffixes)."
+    sha256_rule_for_directories: "SHA-256 of the primary payload file per cache_type — see per-cache-type notes in manifest-schema.agent-spec.yaml (graphhopper uses properties file, valhalla uses first tile, etc.)."
+
+  health:
+    cache_types:
+      - "providers (npi registry files by quarter)"
+      - "claims (per payer and year, parquet)"
+      - "pricing (transparency files by hospital)"
+    path_convention: "country/<payer-or-source>/<year>/<partition>.<ext>. Example: claims/us/medicare/2025/part-b.parquet."
+
+  demographics:
+    cache_types:
+      - "census (tigerline geographies and ACS tables)"
+      - "survey (non-census surveys)"
+    path_convention: "country/<year>/<geo-level>/<state-or-national>.<ext>. Example: census/us/2020/tracts/ca.gpkg."
+
+  voting:
+    cache_types:
+      - "registrations (voter files, per state per year)"
+      - "results (election results, per state per election)"
+      - "districts (boundary files, per state per decade)"
+    path_convention: "country/<state>/<year-or-election>.<ext>. Example: voting/results/us/ca/2024/general.json."
+
+  parcels:
+    cache_types:
+      - "vector (gpkg or geojson per county)"
+      - "assessor (tabular attribute joins)"
+    path_convention: "country/<state>/<county>.<ext>. Example: parcels/vector/us/ca/alameda.gpkg."
+
+  gtfs:
+    cache_types:
+      - "feeds (zip per agency per snapshot date)"
+    path_convention: "<agency-id>/<YYYY-MM-DD>.zip."
+
+  elevation:
+    cache_types:
+      - "srtm (hgt tiles, global 1-degree grid)"
+      - "ned (US 1/3 arc-second)"
+    path_convention: "<source>/<tile-id>.<ext>. Example: srtm/N37W122.hgt."
+
+# ---------------------------------------------------------------------------
+# Forward compatibility.
+# ---------------------------------------------------------------------------
+forward_compatibility:
+  rules:
+    - "Adding a namespace is non-breaking."
+    - "Adding a cache_type within an existing namespace is non-breaking."
+    - "Adding optional sidecar fields is non-breaking. Readers must tolerate unknown fields."
+    - "Renaming required sidecar fields requires a version bump."
+    - "Changing the mirror-source-path rule requires a version bump."
+
+# ---------------------------------------------------------------------------
+# Properties.
+# ---------------------------------------------------------------------------
+properties:
+  - name: "no_shared_lock_on_distinct_keys"
+    statement: "Two writers operating on different (namespace, cache_type, relative_path) triples never acquire the same lock and never block each other."
+    checkable_via: "property_test"
+
+  - name: "atomic_publish"
+    statement: "A reader that observes a sidecar X.meta.json also observes the full artifact at X. A reader never sees a sidecar whose artifact is partial."
+    checkable_via: "property_test"
+
+  - name: "staging_crash_safe"
+    statement: "A writer crash during staging leaves no visible state under cache_root. Readers see the pre-crash state (or no entry, if this was a new entry)."
+    checkable_via: "property_test"
+
+  - name: "overwrite_serialized_per_key"
+    statement: "Two concurrent overwrites of the same entry produce a serialization equivalent to SOME sequential order of the writes. Neither write is lost; no partial merge occurs."
+    checkable_via: "property_test"
+
+  - name: "index_is_advisory"
+    statement: "Deleting an index file never affects correctness of reads or writes. The next read triggers a rebuild."
+    checkable_via: "example_suite"
+
+  - name: "mirror_source_path"
+    statement: "For a derived artifact D built from upstream U, the relative_path of D within its cache_type equals the relative_path of U within its cache_type (modulo extension translation documented per cache_type)."
+    checkable_via: "example_suite"
+
+# ---------------------------------------------------------------------------
+# Dependencies.
+# ---------------------------------------------------------------------------
+dependencies:
+  libraries:
+    - "json (stdlib)"
+    - "fcntl (POSIX, local backend only)"
+  specs:
+    - "agent-spec/storage.agent-spec.yaml"
+    - "agent-spec/manifest-schema.agent-spec.yaml (superseded for NEW namespaces; retained for OSM v1 back-compat during transition)"
+
+# ---------------------------------------------------------------------------
+# Implementation notes.
+# ---------------------------------------------------------------------------
+implementation_notes: |
+  Greenfield — no migration from the existing
+  AFL_OSM_CACHE_ROOT/<cache_type>/manifest.json layout. Tools will be
+  rewritten against the new layout and the old /Volumes/afl_data/osm
+  tree is expected to be re-downloaded fresh into
+  /Volumes/afl_data/cache/osm.
+
+  Reference Python impl should live in
+  https://github.com/rlemke/fwh_osm/blob/main/src/osm_geocoder/tools/_lib/sidecar.py and
+  https://github.com/rlemke/fwh_osm/blob/main/src/osm_geocoder/tools/_lib/cache_index.py, replacing
+  manifest.py for new code paths. The Storage abstraction in
+  _lib/storage.py stays as-is; its finalize_from_local and
+  finalize_dir_from_local methods are exactly the primitives this
+  layout needs for the staging-then-rename protocol.
+
+  The Go or Rust reimplementation must preserve the sidecar filename
+  rule (X.meta.json), the mirror-source-path rule, and the staging-
+  then-rename protocol. Index files are an optimization, not part of
+  the contract.
+
+human_docs:
+  - "To be written — https://github.com/rlemke/fwh_osm/blob/main/src/osm_geocoder/tools/README.md cache section rewrite."

@@ -1,6 +1,6 @@
 // save-earth — FFL definitions for the environmental-action map pipeline.
 //
-// Mirrors the CLI surface in ``examples/save-earth/tools/`` — each
+// Mirrors the CLI surface in ``save_earth/tools/`` — each
 // event facet wraps one _lib function, handlers are thin dispatchers
 // that import from _lib/ via a sys.path shim. The runtime and the
 // terminal produce identical outputs and share the cache rooted at

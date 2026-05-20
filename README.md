@@ -61,6 +61,7 @@ APIs.
 fwh_save_earth/
 ├── pyproject.toml                       # declares facetwork.examples entry point
 ├── agent.py                             # standalone RegistryRunner entrypoint
+├── agent-spec/                          # tools-pattern + cache-layout contracts
 ├── src/save_earth/
 │   ├── __init__.py                      # exports `example: ExamplePackage`
 │   ├── ffl/save_earth.ffl               # schemas, mixins, facets, workflows
