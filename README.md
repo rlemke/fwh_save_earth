@@ -17,7 +17,7 @@ datasets into an interactive map:
   (with `catch` blocks for graceful partial failure) and chain into the map build.
 
 The CLI tools in `src/save_earth/tools/` and the FFL handlers share one
-`_lib/` implementation and one on-disk cache (`$AFL_DATA_ROOT/cache/save-earth/`)
+`_save_earth_tools/` implementation and one on-disk cache (`$AFL_DATA_ROOT/cache/save-earth/`)
 — the terminal and the runtime are two surfaces onto the same data.
 
 Discovered by the Facetwork runner via the `facetwork.examples` entry point
@@ -69,8 +69,8 @@ fwh_save_earth/
 │   │   ├── __init__.py                  # register_all_registry_handlers(runner)
 │   │   ├── sources/source_handlers.py   # DownloadOpenLitterMap / DownloadEpaCleanups / DownloadTri
 │   │   ├── maps/map_handlers.py         # BuildMap
-│   │   └── shared/save_earth_utils.py   # sys.path shim re-exporting tools/_lib
-│   └── tools/                           # CLIs + shell wrappers, backed by tools/_lib/
+│   │   └── shared/save_earth_utils.py   # sys.path shim re-exporting tools/_save_earth_tools
+│   └── tools/                           # CLIs + shell wrappers, backed by tools/_save_earth_tools/
 └── tests/
 ```
 
