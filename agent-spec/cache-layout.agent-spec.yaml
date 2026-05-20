@@ -329,10 +329,10 @@ implementation_notes: |
   /Volumes/afl_data/cache/osm.
 
   Reference Python impl should live in
-  https://github.com/rlemke/fwh_osm/blob/main/src/osm_geocoder/tools/_lib/sidecar.py and
-  https://github.com/rlemke/fwh_osm/blob/main/src/osm_geocoder/tools/_lib/cache_index.py, replacing
+  https://github.com/rlemke/fwh_osm/blob/main/src/osm_geocoder/tools/_osm_tools/sidecar.py and
+  https://github.com/rlemke/fwh_osm/blob/main/src/osm_geocoder/tools/_osm_tools/cache_index.py, replacing
   manifest.py for new code paths. The Storage abstraction in
-  _lib/storage.py stays as-is; its finalize_from_local and
+  _<pkg>_tools/storage.py stays as-is; its finalize_from_local and
   finalize_dir_from_local methods are exactly the primitives this
   layout needs for the staging-then-rename protocol.
 

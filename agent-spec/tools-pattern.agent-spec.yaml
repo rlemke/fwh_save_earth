@@ -15,7 +15,7 @@ purpose: |
   One domain, one code path. A "tool" is a small shell/Python CLI that
   performs one step of a pipeline (download, convert, extract, render).
   An FFL "handler" is the step's runtime-invocable implementation.
-  Both call into the same shared library (tools/_lib/). A developer
+  Both call into the same shared library (tools/_<pkg>_tools/). A developer
   reading the tool at the terminal and a workflow running in production
   exercise identical logic with identical cache effects — no drift
   between the two surfaces.
@@ -36,14 +36,14 @@ layout:
       contents:
         - "<tool>.py        (Python CLI — runnable directly)"
         - "<tool>.sh        (shell wrapper — sources .env + .venv, execs python)"
-        - "_lib/            (shared library — see section below)"
+        - "_<pkg>_tools/            (shared library — see section below)"
         - "README.md        (pipeline diagram + per-tool summary; optional)"
     handlers:
       path: "examples/<domain-name>/handlers/"
       description: "FFL event-facet handlers — thin dispatchers."
       contents:
         - "<facet_group>/<group>_handlers.py  (handler modules)"
-        - "shared/             (re-export shims that bridge to tools/_lib/)"
+        - "shared/             (re-export shims that bridge to tools/_<pkg>_tools/)"
     ffl:
       path: "examples/<domain-name>/ffl/"
       description: "FFL definitions and the compiled registry JSON."
@@ -52,7 +52,7 @@ layout:
         - "<name>.json       (compiled registry — output of afl CLI)"
     tests:
       path: "examples/<domain-name>/tests/"
-      description: "pytest suite for handlers, _lib, and FFL compilation."
+      description: "pytest suite for handlers, _<pkg>_tools, and FFL compilation."
 
 # ---------------------------------------------------------------------------
 # The tool contract — what "a CLI tool" means here.
@@ -108,33 +108,54 @@ tool_contract:
     - "The ONLY required runtime deps are stdlib + the tool's domain libs (requests, osmium, etc.)."
 
 # ---------------------------------------------------------------------------
-# The _lib/ contract — the shared library behind the tools.
+# The _<pkg>_tools/ contract — the shared library behind the tools.
 # ---------------------------------------------------------------------------
 lib_contract:
   purpose: |
-    Every tool is a thin CLI shell around one or more _lib/ functions.
+    Every tool is a thin CLI shell around one or more _<pkg>_tools/ functions.
     The same functions are the handler-facing API. One code path, one
     cache, one set of semantics.
 
+  naming:
+    rule: |
+      The shared library's directory and top-level import name MUST be
+      unique per package — conventionally `_<pkg>_tools/` (e.g. `_osm_tools/`,
+      `_noaa_tools/`, `_save_earth_tools/`). NEVER name it the bare `_lib`.
+    why: |
+      Standalone example packages are ALL imported into the same Python
+      process by `facetwork.examples.discover_entry_point_examples()` — every
+      runner calls it at startup. The tool_side / shim imports below put
+      `tools/` on `sys.path` and import the library by its bare top-level name.
+      If two co-installed packages both call it `_lib` they collide in
+      `sys.modules`: the first cached wins and the rest's handler imports fail
+      (`ImportError: cannot import name X from '_lib'`). A package-unique name
+      makes the `sys.modules` key distinct so it can never be shadowed.
+    alternative: |
+      A package-qualified import (`from <pkg>.tools._lib import ...`, with
+      `tools/` a real package — the form jenkins/anthropic/genomics use) is
+      equally collision-safe. The unique top-level name above is preferred when
+      tools must also run standalone as `python tools/foo.py` without `src/` on
+      `sys.path`.
+
   required_primitives:
     sidecar:
-      path: "_lib/sidecar.py"
+      path: "_<pkg>_tools/sidecar.py"
       role: "Per-entry cache sidecar I/O (read/write/presence/lock/listing)."
       conforms_to: "agent-spec/cache-layout.agent-spec.yaml"
     storage:
-      path: "_lib/storage.py"
+      path: "_<pkg>_tools/storage.py"
       role: "Backend abstraction (LocalStorage, HdfsStorage). Root-path derivation."
       conforms_to: "agent-spec/storage.agent-spec.yaml"
 
   module_style:
-    - "One pipeline step per _lib module (download, parse, extract, build, render)."
+    - "One pipeline step per _<pkg>_tools module (download, parse, extract, build, render)."
     - "Pure/compute modules have NO I/O — e.g. the parse module is pure functions."
     - "I/O modules use sidecar + storage — never write directly to cache paths bypassing the sidecar protocol."
-    - "Mocks for offline mode live in a sibling module (`_lib/<domain>_mocks.py`) and are exercised via a `use_mock` kwarg, never via import-time env detection that's hard to control in tests."
+    - "Mocks for offline mode live in a sibling module (`_<pkg>_tools/<domain>_mocks.py`) and are exercised via a `use_mock` kwarg, never via import-time env detection that's hard to control in tests."
 
   imports:
-    tool_side: "`sys.path.insert(0, str(Path(__file__).resolve().parent))` then `from _lib import <module>`. This lets the tool script run as `python tools/foo.py` without the whole tools/ tree being a Python package."
-    lib_side: "Between _lib modules, use absolute imports: `from _lib import sidecar` — never relative."
+    tool_side: "`sys.path.insert(0, str(Path(__file__).resolve().parent))` then `from _<pkg>_tools import <module>`. This lets the tool script run as `python tools/foo.py` without the whole tools/ tree being a Python package."
+    lib_side: "Between _<pkg>_tools modules, use absolute imports: `from _<pkg>_tools import sidecar` — never relative."
 
 # ---------------------------------------------------------------------------
 # The handler contract — handlers are thin dispatchers.
@@ -143,7 +164,7 @@ handler_contract:
   thinness_rule: |
     A handler file is a registry + parameter-coercion layer. It should
     do NO domain work inline. Every substantive operation routes to a
-    _lib/ function. This makes handler unit tests easy and keeps the
+    _<pkg>_tools/ function. This makes handler unit tests easy and keeps the
     CLI and FFL surfaces exercising literally the same code.
 
   structure:
@@ -154,22 +175,22 @@ handler_contract:
 
   calls_lib_via:
     shim: "handlers/shared/<domain>_utils.py"
-    role: "A compatibility / re-export layer. Puts tools/ on sys.path, re-exports the _lib symbols the handlers use, and optionally wraps them to preserve legacy signatures."
+    role: "A compatibility / re-export layer. Puts tools/ on sys.path, re-exports the _<pkg>_tools symbols the handlers use, and optionally wraps them to preserve legacy signatures."
     example: |
       # handlers/shared/<domain>_utils.py
       _TOOLS_ROOT = Path(__file__).resolve().parents[2] / "tools"
       if str(_TOOLS_ROOT) not in sys.path:
           sys.path.insert(0, str(_TOOLS_ROOT))
-      from _lib.foo import bar  # noqa: E402
+      from _<pkg>_tools.foo import bar  # noqa: E402
 
   stateful_deps:
     rule: |
       Side effects that require infrastructure NOT available to the tool
       (e.g. MongoDB writes, Redis state, message queues) stay in the
-      handler layer — NEVER in _lib. _lib must always be runnable
+      handler layer — NEVER in _<pkg>_tools. _<pkg>_tools must always be runnable
       standalone from a CLI without any cluster available.
     example: |
-      # _lib returns data; handler persists it to Mongo
+      # _<pkg>_tools returns data; handler persists it to Mongo
       summaries = climate_analysis.compute_yearly_summaries(daily, ...)
       report_store.upsert_report(...)   # Mongo write — handler-only
 
@@ -196,15 +217,15 @@ cache_conformance:
 # ---------------------------------------------------------------------------
 tests:
   coverage_rule: |
-    Every _lib module has a pytest test file. Every tool has at least a
+    Every _<pkg>_tools module has a pytest test file. Every tool has at least a
     smoke test (import + --help). Handlers get integration-style tests
-    that mock the Mongo side effects but exercise the real _lib code
+    that mock the Mongo side effects but exercise the real _<pkg>_tools code
     path end-to-end in offline / use_mock mode.
 
   offline_requirement: |
     The full suite must pass with NO network and NO MongoDB. CI uses
     `use_mock=True` or `AFL_DATA_ROOT=$TMPDIR` + deterministic mocks
-    from `_lib/<domain>_mocks.py`. Tests that legitimately need live
+    from `_<pkg>_tools/<domain>_mocks.py`. Tests that legitimately need live
     services are marked with `@pytest.mark.integration` and excluded
     from the default run.
 
@@ -221,14 +242,14 @@ tests:
 new_domain_checklist:
   step_1_scaffold:
     - "Create examples/<name>/{tools,handlers,ffl,tests}/ directories."
-    - "Copy https://github.com/rlemke/fwh_osm/blob/main/src/osm_geocoder/tools/_lib/{sidecar,storage}.py to examples/<name>/tools/_lib/ (they are namespace-agnostic)."
+    - "Copy https://github.com/rlemke/fwh_osm/blob/main/src/osm_geocoder/tools/_osm_tools/{sidecar,storage}.py to examples/<name>/tools/_<pkg>_tools/ (they are namespace-agnostic)."
     - "Add __init__.py files where needed."
 
   step_2_lib:
-    - "Define namespace = '<name>' as a module-level constant in each _lib domain module."
+    - "Define namespace = '<name>' as a module-level constant in each _<pkg>_tools domain module."
     - "Pure-compute modules (parsers, analysis) — no I/O, easy to unit-test."
     - "I/O modules use sidecar + storage. Staged writes only. Never bypass the sidecar protocol."
-    - "Every domain-specific download path gets a deterministic mock in _lib/<domain>_mocks.py for offline tests."
+    - "Every domain-specific download path gets a deterministic mock in _<pkg>_tools/<domain>_mocks.py for offline tests."
 
   step_3_cli:
     - "One .py + one .sh per tool. argparse in .py only."
@@ -239,11 +260,11 @@ new_domain_checklist:
   step_4_handlers:
     - "Each facet group: handlers/<group>/<group>_handlers.py."
     - "handlers/shared/<name>_utils.py is the sys.path shim + legacy wrappers + handler-only state (Mongo)."
-    - "Handler functions: coerce params, call _lib, persist to the handler-only store, return a JSON-serializable dict."
+    - "Handler functions: coerce params, call _<pkg>_tools, persist to the handler-only store, return a JSON-serializable dict."
 
   step_5_tests:
     - "pytest examples/<name>/tests/ must pass offline."
-    - "Tests set AFL_DATA_ROOT=tmp_path and pass use_mock=True — do NOT monkey-patch _lib internals."
+    - "Tests set AFL_DATA_ROOT=tmp_path and pass use_mock=True — do NOT monkey-patch _<pkg>_tools internals."
     - "Add smoke tests for every CLI (import + --help exit 0)."
 
   step_6_docs:
@@ -257,7 +278,7 @@ out_of_scope:
   - "Workflow step definitions (event facets, FFL) → examples/<name>/ffl/."
   - "Scripts that manage the Facetwork stack itself (runners, Docker, databases) → repo-root scripts/."
   - "Test fixtures or pytest helpers → examples/<name>/tests/."
-  - "Anything that must run inside a Facetwork task. If it needs the runtime, it's a handler, not a tool. (The handler may still call the tool's _lib function.)"
+  - "Anything that must run inside a Facetwork task. If it needs the runtime, it's a handler, not a tool. (The handler may still call the tool's _<pkg>_tools function.)"
 
 human_docs:
   - "https://github.com/rlemke/fwh_osm/blob/main/src/osm_geocoder/tools/README.md — canonical reference pipeline."
