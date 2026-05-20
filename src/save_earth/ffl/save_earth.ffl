@@ -1,0 +1,298 @@
+// save-earth — FFL definitions for the environmental-action map pipeline.
+//
+// Mirrors the CLI surface in ``examples/save-earth/tools/`` — each
+// event facet wraps one _lib function, handlers are thin dispatchers
+// that import from _lib/ via a sys.path shim. The runtime and the
+// terminal produce identical outputs and share the cache rooted at
+// ``$AFL_CACHE_ROOT/save-earth/``.
+//
+// Data sources covered in this pass:
+//   - OpenLitterMap (crowd-sourced geotagged litter observations)
+//   - EPA Superfund NPL + Brownfields (authoritative remediation sites)
+// Later PRs can add Tree Equity Score, Open311 cleanup feeds, and
+// Surfrider chapters by defining new event facets in save_earth.sources
+// without touching the map-build facet.
+
+// ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
+
+namespace save_earth.types {
+    /** Result of any source download — one cached GeoJSON + sidecar.
+      *
+      * Matches the ``FetchResult`` dataclass the _lib modules return so
+      * FFL workflows can key downstream steps on ``relative_path`` or
+      * ``feature_count`` without parsing the cached file. */
+    schema SourceFetchResult {
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    }
+
+    /** Output of BuildMap: filesystem paths to the rendered bundle.
+      *
+      * ``layer_counts`` is ``{layer_name: feature_count}`` as a JSON
+      * object so the schema stays flat even when new sources get
+      * added later. */
+    schema MapBundle {
+        region_key: String,
+        output_dir: String,
+        html_path: String,
+        layer_count: Int,
+        layer_counts: Json
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared mixins
+// ---------------------------------------------------------------------------
+
+namespace save_earth.mixins {
+    /** Retry a step with exponential backoff. Applied to every
+      * network-facing source download — OpenLitterMap's servers can
+      * rate-limit, EPA's ArcGIS fronts occasionally 5xx. */
+    facet RetryPolicy(
+        max_retries: Int = 3,
+        backoff_ms: Int = 2000
+    ) => (max_retries: Int, backoff_ms: Int)
+
+    implicit default_retry = RetryPolicy()
+}
+
+// ---------------------------------------------------------------------------
+// Sources — one event facet per cached data source.
+// ---------------------------------------------------------------------------
+
+namespace save_earth.sources {
+    use save_earth.types
+
+    /** Download OpenLitterMap geotagged litter observations.
+      *
+      * ``mode = "clusters"`` (default) works at any zoom; returns
+      * aggregated cluster points. ``mode = "points"`` returns
+      * individual photos but the upstream server enforces
+      * ``zoom >= 15`` and a bounded ``bbox``.
+      *
+      * ``bbox`` is a comma-separated ``min_lon,min_lat,max_lon,max_lat``
+      * string (empty = no bbox). Keeping it a String avoids making
+      * Json mandatory; handlers parse it at dispatch time. */
+    event facet DownloadOpenLitterMap(
+        mode: String = "clusters",
+        zoom: Int = 4,
+        bbox: String = "",
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy()
+
+    /** Download the EPA Toxic Release Inventory facility table.
+      *
+      * Fetches TRI_FACILITY from ``data.epa.gov/efservice/`` (the
+      * old ``enviro.epa.gov`` URL redirects there). ~65 k rows
+      * total, paginated at 10 k/request. Normalizes longitude sign
+      * for western-hemisphere state codes.
+      *
+      * ``active_only`` (default true) drops facilities whose
+      * ``fac_closed_ind`` is ``"1"``. */
+    event facet DownloadTri(
+        active_only: Boolean = true,
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy()
+
+    /** Download an EPA remediation-site dataset.
+      *
+      * ``dataset`` = ``"superfund"`` (NPL sites, ~1.4k) or
+      * ``"brownfields"`` (ACRES, tens of thousands — paginated
+      * transparently by the handler). */
+    event facet DownloadEpaCleanups(
+        dataset: String = "superfund",
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy()
+}
+
+// ---------------------------------------------------------------------------
+// Maps — stitch cached GeoJSON into a MapLibre HTML bundle.
+// ---------------------------------------------------------------------------
+
+namespace save_earth.maps {
+    use save_earth.types
+
+    /** Build a MapLibre HTML map with every cached save-earth layer.
+      *
+      * Auto-discovers cached files — every OpenLitterMap GeoJSON under
+      * ``cache/save-earth/openlittermap/`` and every EPA dataset
+      * becomes its own toggleable layer. Passing a dependency signal
+      * (e.g. the ``feature_count`` from a just-finished download) lets
+      * the runtime sequence the map build after the downloads it
+      * relies on.
+      *
+      * ``basemap_url`` / ``basemap_attribution`` let the caller swap
+      * the raster basemap. Default is CARTO Voyager — free, no API
+      * key, works from ``file://`` (unlike tile.openstreetmap.org,
+      * which requires a Referer header per its volunteer-tile
+      * policy). Supports ``{z}/{x}/{y}`` plus optional ``{s}`` for
+      * subdomain rotation. */
+    event facet BuildMap(
+        region: String = "global",
+        center_lat: Double = 39.8283,
+        center_lon: Double = -98.5795,
+        zoom: Double = 4.0,
+        basemap_url: String = "",
+        basemap_attribution: String = "",
+        dependency_signal: Int = 0
+    ) => (
+        region_key: String,
+        output_dir: String,
+        html_path: String,
+        layer_count: Int,
+        layer_counts: Json
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Workflows
+// ---------------------------------------------------------------------------
+
+namespace save_earth.workflows {
+    use save_earth.types
+
+    /** Download every source and build the combined global map.
+      *
+      * Downloads run in parallel (FFL ``andThen`` siblings are
+      * scheduled concurrently when they don't reference each other).
+      * Any download failure yields ``partial_failure`` with a
+      * describing ``detail`` but does not stop the map build — the
+      * map-render tool skips absent layers gracefully. */
+    workflow BuildGlobalMap(
+        openlittermap_zoom: Int = 4,
+        include_brownfields: Boolean = true,
+        use_mock: Boolean = false
+    ) => (
+        status: String,
+        html_path: String,
+        detail: String
+    ) andThen {
+        olm = DownloadOpenLitterMap(
+            mode = "clusters",
+            zoom = $.openlittermap_zoom,
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildGlobalMap(
+                status = "partial_failure",
+                html_path = "",
+                detail = "openlittermap download failed"
+            )
+        }
+        superfund = DownloadEpaCleanups(
+            dataset = "superfund",
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildGlobalMap(
+                status = "partial_failure",
+                html_path = "",
+                detail = "epa superfund download failed"
+            )
+        }
+        brownfields = DownloadEpaCleanups(
+            dataset = "brownfields",
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildGlobalMap(
+                status = "partial_failure",
+                html_path = "",
+                detail = "epa brownfields download failed"
+            )
+        }
+        // dependency_signal pins the map build after every download
+        // by referencing a field each produced — the runtime
+        // resolves that as a data-flow edge.
+        map = BuildMap(
+            region = "global",
+            dependency_signal = olm.feature_count + superfund.feature_count + brownfields.feature_count
+        ) catch {
+            yield BuildGlobalMap(
+                status = "failed",
+                html_path = "",
+                detail = "map build failed"
+            )
+        }
+        yield BuildGlobalMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = "map " ++ map.region_key ++ " with " ++ map.layer_count ++ " layer(s)"
+        )
+    }
+
+    /** Download OpenLitterMap at a tighter zoom for a specific region
+      * (useful for country/state maps where the zoom-4 global feed is
+      * too coarse). Chains into the global map build so the new layer
+      * is picked up automatically. */
+    workflow BuildRegionalMap(
+        region_key: String = "us",
+        openlittermap_zoom: Int = 8,
+        center_lat: Double = 39.8283,
+        center_lon: Double = -98.5795,
+        zoom: Double = 4.0,
+        use_mock: Boolean = false
+    ) => (status: String, html_path: String) andThen {
+        olm = DownloadOpenLitterMap(
+            mode = "clusters",
+            zoom = $.openlittermap_zoom,
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildRegionalMap(status = "partial_failure", html_path = "")
+        }
+        superfund = DownloadEpaCleanups(
+            dataset = "superfund",
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildRegionalMap(status = "partial_failure", html_path = "")
+        }
+        map = BuildMap(
+            region = $.region_key,
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            dependency_signal = olm.feature_count + superfund.feature_count
+        ) catch {
+            yield BuildRegionalMap(status = "failed", html_path = "")
+        }
+        yield BuildRegionalMap(
+            status = "completed",
+            html_path = map.html_path
+        )
+    }
+}
