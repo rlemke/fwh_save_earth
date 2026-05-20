@@ -137,7 +137,7 @@ The HTML page ships with:
 - **Click popups** surfacing the upstream `properties` verbatim (EPA primary_name / facility_url, OpenLitterMap datetime / verified / tags, etc.) — no transformation, so rows match whatever the source ships.
 - **CARTO Voyager basemap** by default. The previous OSM-direct default hit OSM's volunteer-tile Referer policy and 403'd when the HTML was opened from `file://`. CARTO is free, no-key, and works in every origin. Override with `--basemap-url` + `--basemap-attribution` (supports `{z}/{x}/{y}` and optional `{s}` for subdomain rotation).
 
-## `_lib/` — shared library
+## `_save_earth_tools/` — shared library
 
 | Module | Role |
 |--------|------|
@@ -164,7 +164,7 @@ Workflows:
 - `save_earth.workflows.BuildGlobalMap` — OLM clusters + Superfund + Brownfields in parallel, then BuildMap.
 - `save_earth.workflows.BuildRegionalMap` — region-scoped OLM zoom + Superfund, then BuildMap.
 
-Handlers are thin dispatchers (`handlers/sources/`, `handlers/maps/`) that import from `tools/_lib/` via `handlers/shared/save_earth_utils.py` — same code path as the CLI.
+Handlers are thin dispatchers (`handlers/sources/`, `handlers/maps/`) that import from `tools/_save_earth_tools/` via `handlers/shared/save_earth_utils.py` — same code path as the CLI.
 
 ## Standards + references
 

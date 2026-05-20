@@ -1,6 +1,6 @@
 """Handler-side re-export of the save-earth tool library.
 
-The real implementation lives in ``save_earth/tools/_lib/`` (inside this
+The real implementation lives in ``save_earth/tools/_save_earth_tools/`` (inside this
 package). It is shared verbatim by:
 
 - the save-earth CLI tools (``save_earth/tools/``), and
@@ -11,7 +11,7 @@ Both entry points read and write the same on-disk cache
 ``.meta.json`` sidecars — the tool and the FFL are two surfaces onto
 one cache.
 
-One-time sys.path shim so handlers can import the _lib modules via a
+One-time sys.path shim so handlers can import the _save_earth_tools modules via a
 natural ``from ..shared.save_earth_utils import ...`` without every
 caller repeating the path gymnastics. ``parents[2]`` is the package
 root (``save_earth/``); ``/ "tools"`` reaches the bundled CLI tools.
@@ -26,21 +26,21 @@ _TOOLS_ROOT = Path(__file__).resolve().parents[2] / "tools"
 if str(_TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOLS_ROOT))
 
-from _lib import (  # noqa: E402,F401
+from _save_earth_tools import (  # noqa: E402,F401
     epa_cleanups,
     map_render,
     openlittermap,
     sidecar,
     tri,
 )
-from _lib.storage import LocalStorage  # noqa: E402,F401
+from _save_earth_tools.storage import LocalStorage  # noqa: E402,F401
 
 
 def parse_bbox(s: str) -> tuple[float, float, float, float] | None:
     """Parse ``min_lon,min_lat,max_lon,max_lat`` → tuple. Empty string → None.
 
     FFL workflows pass bbox as a String for schema simplicity; the
-    handlers translate to the tuple the _lib API wants.
+    handlers translate to the tuple the _save_earth_tools API wants.
     """
     if not s:
         return None

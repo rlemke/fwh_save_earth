@@ -40,8 +40,8 @@ _TOOLS_ROOT = Path(__file__).resolve().parent.parent
 if str(_TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOLS_ROOT))
 
-from _lib import sidecar  # noqa: E402
-from _lib.storage import LocalStorage, Storage  # noqa: E402
+from _save_earth_tools import sidecar  # noqa: E402
+from _save_earth_tools.storage import LocalStorage, Storage  # noqa: E402
 
 NAMESPACE = "save-earth"
 CACHE_TYPE = "maps"

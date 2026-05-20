@@ -37,7 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _lib import tri  # noqa: E402
+from _save_earth_tools import tri  # noqa: E402
 
 
 def main() -> int:

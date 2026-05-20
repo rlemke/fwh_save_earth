@@ -41,8 +41,8 @@ if str(_TOOLS_ROOT) not in sys.path:
 
 from datetime import UTC
 
-from _lib import sidecar  # noqa: E402
-from _lib.storage import LocalStorage, Storage, local_staging_subdir  # noqa: E402
+from _save_earth_tools import sidecar  # noqa: E402
+from _save_earth_tools.storage import LocalStorage, Storage, local_staging_subdir  # noqa: E402
 
 try:
     import requests

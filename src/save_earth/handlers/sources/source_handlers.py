@@ -1,7 +1,7 @@
 """Source handlers — download per-source GeoJSON + sidecar.
 
-Each handler is a thin parameter-coercion layer over one ``_lib``
-function. MongoDB / state side-effects stay out — these handlers
+Each handler is a thin parameter-coercion layer over one
+``_save_earth_tools`` function. MongoDB / state side-effects stay out — these handlers
 write only to the filesystem cache the tools manage.
 """
 

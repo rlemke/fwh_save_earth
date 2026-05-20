@@ -34,7 +34,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from _lib.storage import (
+from _save_earth_tools.storage import (
     LocalStorage,
     Storage,
     cache_root,

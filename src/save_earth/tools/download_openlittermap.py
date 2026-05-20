@@ -35,7 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _lib import openlittermap  # noqa: E402
+from _save_earth_tools import openlittermap  # noqa: E402
 
 
 def _parse_bbox(s: str) -> tuple[float, float, float, float]:

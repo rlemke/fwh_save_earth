@@ -31,8 +31,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _lib import epa_cleanups, map_render, openlittermap, sidecar, tri  # noqa: E402
-from _lib.storage import LocalStorage  # noqa: E402
+from _save_earth_tools import epa_cleanups, map_render, openlittermap, sidecar, tri  # noqa: E402
+from _save_earth_tools.storage import LocalStorage  # noqa: E402
 
 # EPA layers have fixed filenames. OpenLitterMap layers are auto-
 # discovered at render time (see _openlittermap_layers) because the

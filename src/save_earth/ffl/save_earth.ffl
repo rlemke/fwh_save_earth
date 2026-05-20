@@ -1,8 +1,9 @@
 // save-earth — FFL definitions for the environmental-action map pipeline.
 //
 // Mirrors the CLI surface in ``save_earth/tools/`` — each
-// event facet wraps one _lib function, handlers are thin dispatchers
-// that import from _lib/ via a sys.path shim. The runtime and the
+// event facet wraps one _save_earth_tools function, handlers are thin
+// dispatchers that import from _save_earth_tools/ via a sys.path shim.
+// The runtime and the
 // terminal produce identical outputs and share the cache rooted at
 // ``$AFL_CACHE_ROOT/save-earth/``.
 //
@@ -20,7 +21,7 @@
 namespace save_earth.types {
     /** Result of any source download — one cached GeoJSON + sidecar.
       *
-      * Matches the ``FetchResult`` dataclass the _lib modules return so
+      * Matches the ``FetchResult`` dataclass the _save_earth_tools modules return so
       * FFL workflows can key downstream steps on ``relative_path`` or
       * ``feature_count`` without parsing the cached file. */
     schema SourceFetchResult {
