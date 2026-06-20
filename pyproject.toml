@@ -27,8 +27,8 @@ dev = [
 [project.urls]
 Repository = "https://github.com/rlemke/fwh_save_earth"
 
-[project.entry-points."facetwork.examples"]
-save-earth = "save_earth:example"
+[project.entry-points."facetwork.domains"]
+save-earth = "save_earth:domain"
 
 [tool.setuptools.packages.find]
 where = ["src"]
