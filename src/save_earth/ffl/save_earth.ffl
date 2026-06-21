@@ -97,7 +97,7 @@ namespace save_earth.sources {
         source_url: String,
         was_cached: Boolean,
         used_mock: Boolean
-    ) with RetryPolicy()
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
     /** Download the EPA Toxic Release Inventory facility table.
       *
@@ -121,7 +121,7 @@ namespace save_earth.sources {
         source_url: String,
         was_cached: Boolean,
         used_mock: Boolean
-    ) with RetryPolicy()
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
     /** Download an EPA remediation-site dataset.
       *
@@ -141,7 +141,7 @@ namespace save_earth.sources {
         source_url: String,
         was_cached: Boolean,
         used_mock: Boolean
-    ) with RetryPolicy()
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +180,7 @@ namespace save_earth.maps {
         html_path: String,
         layer_count: Int,
         layer_counts: Json
-    )
+    ) with Effect(kind = "io") with Cost(tier = "cheap")
 }
 
 // ---------------------------------------------------------------------------

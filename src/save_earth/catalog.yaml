@@ -1,0 +1,113 @@
+# Composability manifest for the save-earth package.
+#
+# Machine-readable index so an LLM can DISCOVER + REUSE these capabilities by
+# intent, the same way the platform's `fw_catalog_match` (workflow-level,
+# reuse-first) and `fw_capabilities` (facet-level capability index) tools work.
+#
+#   * `workflows` — entry-point facets, each with a natural-language `summary`
+#     (the kind of request it answers), `tags`, and a `param_schema` of the key
+#     parameters. Use these for reuse-first catalog matching: match an NL request
+#     against the summaries/tags before authoring anything new.
+#   * `facets` — a capability index of the core composable primitives by
+#     namespace, with `purpose`, `signature`, and the `effect`/`cost` taken
+#     verbatim from the `with Effect(...) / with Cost(...)` mixins in the FFL.
+#     Compose pipelines from these; prefer pure/cheap primitives.
+#
+# Accurate qualified names + signatures are sourced from
+# `src/save_earth/ffl/save_earth.ffl`; see `save_earth.catalog.load_manifest()`.
+
+version: 1
+package: save-earth
+
+workflows:
+  - qualified_name: save_earth.workflows.BuildGlobalMap
+    summary: >-
+      Download every open environmental dataset (OpenLitterMap litter
+      observations, EPA Superfund NPL sites, EPA Brownfields) in parallel and
+      stitch them into one interactive global MapLibre HTML map. The preferred
+      entry point for "show me an environmental map" / "map litter and cleanup
+      sites" with no particular region in mind. Download failures degrade to a
+      partial map rather than aborting.
+    tags: [environment, map, maplibre, openlittermap, epa, superfund, brownfields, geojson, global, fanout]
+    entry_point: true
+    param_schema:
+      openlittermap_zoom: Int
+      include_brownfields: Boolean
+      use_mock: Boolean
+
+  - qualified_name: save_earth.workflows.BuildRegionalMap
+    summary: >-
+      Download OpenLitterMap at a tighter zoom plus EPA Superfund sites for a
+      specific region (country/state) and render a MapLibre HTML map centered on
+      that region. Use when the request names a place ("litter map of the US")
+      where the coarse global zoom-4 feed would be too sparse.
+    tags: [environment, map, maplibre, openlittermap, epa, superfund, regional, country, geojson]
+    entry_point: true
+    param_schema:
+      region_key: String
+      openlittermap_zoom: Int
+      center_lat: Double
+      center_lon: Double
+      zoom: Double
+      use_mock: Boolean
+
+facets:
+  # --- Sources — one event facet per cached open dataset --------------------
+  - qualified_name: save_earth.sources.DownloadOpenLitterMap
+    purpose: >-
+      Download OpenLitterMap crowd-sourced geotagged litter observations to a
+      cached GeoJSON + sidecar. `mode="clusters"` (default) aggregates at any
+      zoom; `mode="points"` returns individual photos but requires zoom>=15 and
+      a bounded bbox.
+    signature: >-
+      DownloadOpenLitterMap(mode: String = "clusters", zoom: Int = 4,
+      bbox: String = "", force: Boolean = false, use_mock: Boolean = false)
+      => (cache_type, relative_path, feature_count, size_bytes, sha256,
+      source_url, was_cached, used_mock)
+    effect: external
+    cost: moderate
+    namespace: save_earth.sources
+
+  - qualified_name: save_earth.sources.DownloadTri
+    purpose: >-
+      Download the EPA Toxic Release Inventory (TRI_FACILITY) facility table
+      (~65k rows, paginated) to a cached GeoJSON + sidecar; normalizes
+      western-hemisphere longitude signs and (by default) drops closed
+      facilities.
+    signature: >-
+      DownloadTri(active_only: Boolean = true, force: Boolean = false,
+      use_mock: Boolean = false) => (cache_type, relative_path, feature_count,
+      size_bytes, sha256, source_url, was_cached, used_mock)
+    effect: external
+    cost: moderate
+    namespace: save_earth.sources
+
+  - qualified_name: save_earth.sources.DownloadEpaCleanups
+    purpose: >-
+      Download an EPA remediation-site dataset to a cached GeoJSON + sidecar:
+      `dataset="superfund"` (NPL sites, ~1.4k) or `dataset="brownfields"`
+      (ACRES, tens of thousands, transparently paginated).
+    signature: >-
+      DownloadEpaCleanups(dataset: String = "superfund", force: Boolean = false,
+      use_mock: Boolean = false) => (cache_type, relative_path, feature_count,
+      size_bytes, sha256, source_url, was_cached, used_mock)
+    effect: external
+    cost: moderate
+    namespace: save_earth.sources
+
+  # --- Maps — stitch cached GeoJSON into a MapLibre HTML bundle -------------
+  - qualified_name: save_earth.maps.BuildMap
+    purpose: >-
+      Build a MapLibre HTML map bundle from every cached save-earth layer,
+      auto-discovering cached OpenLitterMap and EPA GeoJSON files as toggleable
+      layers. `dependency_signal` lets the runtime sequence the build after the
+      downloads it consumes; `basemap_url`/`basemap_attribution` swap the raster
+      basemap.
+    signature: >-
+      BuildMap(region: String = "global", center_lat: Double = 39.8283,
+      center_lon: Double = -98.5795, zoom: Double = 4.0, basemap_url: String = "",
+      basemap_attribution: String = "", dependency_signal: Int = 0)
+      => (region_key, output_dir, html_path, layer_count, layer_counts)
+    effect: io
+    cost: cheap
+    namespace: save_earth.maps

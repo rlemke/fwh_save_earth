@@ -15,6 +15,7 @@ keywords = ["facetwork", "ffl", "environment", "geojson", "openlittermap", "epa"
 dependencies = [
     "facetwork>=0.31.0",
     "requests>=2.28",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +37,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 save_earth = [
     "ffl/*.ffl",
+    "catalog.yaml",
 ]
 
 [tool.ruff]
