@@ -189,6 +189,27 @@ namespace save_earth.sources {
         was_cached: Boolean,
         used_mock: Boolean
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
+    /** Download worldwide LGBTQ+ bars & restaurants from OSM.
+      *
+      * Queries the OpenStreetMap Overpass API for food/drink venues (bar, pub,
+      * nightclub, restaurant, cafe, fast_food, biergarten) tagged LGBTQ-oriented
+      * or LGBTQ-welcoming (``lgbtq=*`` other than ``no``, or the older
+      * ``gay=yes``). Every OSM tag is kept verbatim so the popup table shows all
+      * available info (name, amenity, lgbtq, opening_hours, website, …). */
+    event facet DownloadLgbtqVenues(
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 }
 
 // ---------------------------------------------------------------------------
@@ -443,6 +464,54 @@ namespace save_earth.workflows {
             status = "completed",
             html_path = map.html_path,
             detail = "volcano map with " ++ volcanoes.feature_count ++ " volcano(es)"
+        )
+    }
+
+    /** Build an interactive world map of LGBTQ+ bars & restaurants.
+      *
+      * Downloads the OSM LGBTQ venue dataset, then renders the MapLibre map with
+      * only the lgbtq layer. No curated field list, so clicking a venue opens a
+      * popup table showing every OSM attribute it carries (name, amenity, lgbtq,
+      * opening_hours, website, …). */
+    workflow BuildLgbtqVenueMap(
+        center_lat: Double = 30.0,
+        center_lon: Double = 5.0,
+        zoom: Double = 1.7,
+        use_mock: Boolean = false
+    ) => (
+        status: String,
+        html_path: String,
+        detail: String
+    ) andThen {
+        venues = DownloadLgbtqVenues(
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildLgbtqVenueMap(
+                status = "failed",
+                html_path = "",
+                detail = "lgbtq venue download failed"
+            )
+        }
+        map = BuildMap(
+            region = "lgbtq",
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            dependency_signal = venues.feature_count,
+            only_layers = "lgbtq",
+            attribution_workflow = "save_earth.workflows.BuildLgbtqVenueMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl"
+        ) catch {
+            yield BuildLgbtqVenueMap(
+                status = "failed",
+                html_path = "",
+                detail = "map build failed"
+            )
+        }
+        yield BuildLgbtqVenueMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = "lgbtq map with " ++ venues.feature_count ++ " venue(s)"
         )
     }
 }

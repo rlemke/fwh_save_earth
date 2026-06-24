@@ -9,6 +9,7 @@ from typing import Any
 
 from ..shared.save_earth_utils import (
     get_storage,
+    lgbtq,
     map_render,
     nuclear,
     openlittermap,
@@ -96,6 +97,18 @@ _VOLCANO_LAYER = map_render.LayerSpec(
     description_fields=None,
 )
 
+# LGBTQ+ bars & restaurants (OSM). description_fields=None → popup table shows
+# every OSM tag the venue carries.
+_LGBTQ_LAYER = map_render.LayerSpec(
+    name="lgbtq",
+    title="LGBTQ+ bars & restaurants (OSM)",
+    source_cache_type=lgbtq.CACHE_TYPE,
+    source_relative_path=lgbtq.RELATIVE_PATH,
+    color="#d500f9",
+    radius=6,
+    description_fields=None,
+)
+
 _OLM_DESCRIPTION_FIELDS = [
     "point_count",
     "point_count_abbreviated",
@@ -157,7 +170,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     step_log = params.get("_step_log")
 
     storage = get_storage()
-    candidates = [_NUCLEAR_LAYER, _VOLCANO_LAYER] + _EPA_LAYERS + _openlittermap_layers(storage)
+    candidates = [_NUCLEAR_LAYER, _VOLCANO_LAYER, _LGBTQ_LAYER] + _EPA_LAYERS + _openlittermap_layers(storage)
     if only:
         candidates = [layer for layer in candidates if layer.name in only]
     present: list[map_render.LayerSpec] = []

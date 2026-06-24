@@ -28,6 +28,7 @@ if str(_TOOLS_ROOT) not in sys.path:
 
 from _save_earth_tools import (  # noqa: E402,F401
     epa_cleanups,
+    lgbtq,
     map_render,
     nuclear,
     openlittermap,
@@ -66,4 +67,5 @@ __all__ = [
     "sidecar",
     "tri",
     "volcanoes",
+    "lgbtq",
 ]

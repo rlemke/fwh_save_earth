@@ -13,6 +13,7 @@ from typing import Any
 
 from ..shared.save_earth_utils import (
     epa_cleanups,
+    lgbtq,
     nuclear,
     openlittermap,
     parse_bbox,
@@ -157,6 +158,23 @@ def handle_download_volcanoes(params: dict[str, Any]) -> dict[str, Any]:
     return {"cache_type": volcanoes.CACHE_TYPE, **_result_payload(res)}
 
 
+def handle_download_lgbtq_venues(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadLgbtqVenues — worldwide LGBTQ+ bars & restaurants from OSM."""
+    force = bool(params.get("force", False))
+    use_mock = bool(params.get("use_mock", False))
+    step_log = params.get("_step_log")
+
+    _step_log(step_log, f"DownloadLgbtqVenues force={force} use_mock={use_mock}")
+    res = lgbtq.download(force=force, use_mock=use_mock)
+    status = "cache" if res.was_cached else ("mock" if res.used_mock else "download")
+    _step_log(
+        step_log,
+        f"[{status}] lgbtq/{res.relative_path}  {res.feature_count:,} venues",
+        "success",
+    )
+    return {"cache_type": lgbtq.CACHE_TYPE, **_result_payload(res)}
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -167,6 +185,7 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadTri": handle_download_tri,
     f"{NAMESPACE}.DownloadNuclearReactors": handle_download_nuclear_reactors,
     f"{NAMESPACE}.DownloadVolcanoes": handle_download_volcanoes,
+    f"{NAMESPACE}.DownloadLgbtqVenues": handle_download_lgbtq_venues,
 }
 
 
