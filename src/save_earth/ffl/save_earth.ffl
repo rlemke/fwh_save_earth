@@ -244,7 +244,8 @@ namespace save_earth.maps {
         dependency_signal: Int = 0,
         only_layers: String = "",
         attribution_workflow: String = "",
-        attribution_ffl_url: String = ""
+        attribution_ffl_url: String = "",
+        description: String = ""
     ) => (
         region_key: String,
         output_dir: String,
@@ -403,7 +404,8 @@ namespace save_earth.workflows {
             dependency_signal = reactors.feature_count,
             only_layers = "nuclear-reactors",
             attribution_workflow = "save_earth.workflows.BuildNuclearReactorMap",
-            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl"
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "Nuclear power reactors and plants worldwide, from OpenStreetMap. Click any site for its full details (operator, electrical output, start date, reactor type, status, ...)."
         ) catch {
             yield BuildNuclearReactorMap(
                 status = "failed",
@@ -452,7 +454,8 @@ namespace save_earth.workflows {
             dependency_signal = volcanoes.feature_count,
             only_layers = "volcanoes",
             attribution_workflow = "save_earth.workflows.BuildVolcanoMap",
-            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl"
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "Major (notable) volcanoes worldwide, from OpenStreetMap - natural=volcano features with a Wikipedia/Wikidata entry. Click any volcano for its details (elevation, type, status, ...)."
         ) catch {
             yield BuildVolcanoMap(
                 status = "failed",
@@ -500,7 +503,8 @@ namespace save_earth.workflows {
             dependency_signal = venues.feature_count,
             only_layers = "lgbtq",
             attribution_workflow = "save_earth.workflows.BuildLgbtqVenueMap",
-            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl"
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "LGBTQ+ bars, pubs, clubs and restaurants worldwide, from OpenStreetMap (lgbtq / gay tags). Click any venue for its full details (amenity, opening hours, website, ...)."
         ) catch {
             yield BuildLgbtqVenueMap(
                 status = "failed",

@@ -93,6 +93,7 @@ def render_map(
     basemap_attribution: str = DEFAULT_BASEMAP_ATTRIBUTION,
     attribution_workflow: str = "",
     attribution_ffl_url: str = "",
+    description: str = "",
 ) -> MapBundle:
     """Stitch cached GeoJSON from each LayerSpec into a single HTML map.
 
@@ -130,6 +131,7 @@ def render_map(
         basemap_attribution=basemap_attribution,
         attribution_workflow=attribution_workflow,
         attribution_ffl_url=attribution_ffl_url,
+        description=description,
     )
 
     out_dir = _resolve_output_dir(region_key, output_dir=output_dir, storage=s)
@@ -208,6 +210,7 @@ def _render_html(
     basemap_attribution: str,
     attribution_workflow: str = "",
     attribution_ffl_url: str = "",
+    description: str = "",
 ) -> str:
     # Expand {s} → list of subdomains MapLibre understands. CARTO's
     # default URL uses {s} but Fastly's subdomains are a/b/c/d.
@@ -263,6 +266,14 @@ def _render_html(
           max-width: 260px; font-size: 13px;
         }
         .panel h3 { margin: 0 0 6px; font-size: 14px; }
+        .info {
+          position: absolute; top: 10px; left: 10px; z-index: 5;
+          background: rgba(255,255,255,0.95); border-radius: 6px;
+          padding: 10px 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+          max-width: 300px; font-size: 12px; line-height: 1.4;
+        }
+        .info h3 { margin: 0 0 5px; font-size: 14px; }
+        .info p { margin: 0; color: #444; }
         .panel label { display: block; margin: 4px 0; cursor: pointer; }
         .panel .swatch {
           display: inline-block; width: 10px; height: 10px; border-radius: 50%;
@@ -307,6 +318,11 @@ def _render_html(
             '<a href="https://github.com/rlemke/facetwork" target="_blank" '
             'rel="noopener">Facetwork</a></div>'
         )
+
+    # Top-left description box explaining what the map shows.
+    info_html = (
+        f'<div class="info"><p>{html_mod.escape(description)}</p></div>' if description else ""
+    )
 
     script = textwrap.dedent(
         f"""\
@@ -476,6 +492,7 @@ def _render_html(
         </head>
         <body>
         <div id="map"></div>
+        {info_html}
         <div class="panel" id="panel">
           <h3>Layers</h3>
         </div>

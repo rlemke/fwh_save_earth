@@ -167,6 +167,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     only = {s.strip() for s in (params.get("only_layers", "") or "").split(",") if s.strip()}
     attribution_workflow = params.get("attribution_workflow", "") or ""
     attribution_ffl_url = params.get("attribution_ffl_url", "") or ""
+    description = params.get("description", "") or ""
     step_log = params.get("_step_log")
 
     storage = get_storage()
@@ -216,6 +217,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
         basemap_attribution=basemap_attr,
         attribution_workflow=attribution_workflow,
         attribution_ffl_url=attribution_ffl_url,
+        description=description,
     )
     _step_log(
         step_log,
