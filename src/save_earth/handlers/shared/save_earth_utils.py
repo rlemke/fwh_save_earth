@@ -33,6 +33,7 @@ from _save_earth_tools import (  # noqa: E402,F401
     openlittermap,
     sidecar,
     tri,
+    volcanoes,
 )
 from _save_earth_tools.storage import LocalStorage, get_storage  # noqa: E402,F401
 
@@ -64,4 +65,5 @@ __all__ = [
     "parse_bbox",
     "sidecar",
     "tri",
+    "volcanoes",
 ]

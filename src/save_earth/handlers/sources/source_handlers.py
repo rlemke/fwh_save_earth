@@ -17,6 +17,7 @@ from ..shared.save_earth_utils import (
     openlittermap,
     parse_bbox,
     tri,
+    volcanoes,
 )
 
 logger = logging.getLogger("save-earth.sources")
@@ -139,6 +140,23 @@ def handle_download_nuclear_reactors(params: dict[str, Any]) -> dict[str, Any]:
     return {"cache_type": nuclear.CACHE_TYPE, **_result_payload(res)}
 
 
+def handle_download_volcanoes(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadVolcanoes — worldwide major (notable) volcanoes from OSM."""
+    force = bool(params.get("force", False))
+    use_mock = bool(params.get("use_mock", False))
+    step_log = params.get("_step_log")
+
+    _step_log(step_log, f"DownloadVolcanoes force={force} use_mock={use_mock}")
+    res = volcanoes.download(force=force, use_mock=use_mock)
+    status = "cache" if res.was_cached else ("mock" if res.used_mock else "download")
+    _step_log(
+        step_log,
+        f"[{status}] volcanoes/{res.relative_path}  {res.feature_count:,} volcanoes",
+        "success",
+    )
+    return {"cache_type": volcanoes.CACHE_TYPE, **_result_payload(res)}
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -148,6 +166,7 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadEpaCleanups": handle_download_epa_cleanups,
     f"{NAMESPACE}.DownloadTri": handle_download_tri,
     f"{NAMESPACE}.DownloadNuclearReactors": handle_download_nuclear_reactors,
+    f"{NAMESPACE}.DownloadVolcanoes": handle_download_volcanoes,
 }
 
 

@@ -12,6 +12,7 @@ from ..shared.save_earth_utils import (
     map_render,
     nuclear,
     openlittermap,
+    volcanoes,
 )
 from ..shared.save_earth_utils import (
     sidecar as sidecar_lib,
@@ -83,6 +84,18 @@ _NUCLEAR_LAYER = map_render.LayerSpec(
     description_fields=None,
 )
 
+# Major (notable) volcanoes (OSM via Overpass). description_fields=None so the
+# popup shows EVERY OSM tag (name, ele, volcano:type, volcano:status, …).
+_VOLCANO_LAYER = map_render.LayerSpec(
+    name="volcanoes",
+    title="Major volcanoes (OSM)",
+    source_cache_type=volcanoes.CACHE_TYPE,
+    source_relative_path=volcanoes.RELATIVE_PATH,
+    color="#d84315",
+    radius=8,
+    description_fields=None,
+)
+
 _OLM_DESCRIPTION_FIELDS = [
     "point_count",
     "point_count_abbreviated",
@@ -135,10 +148,18 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     # unset without breaking rendering.
     basemap_url = params.get("basemap_url", "") or map_render.DEFAULT_BASEMAP_URL
     basemap_attr = params.get("basemap_attribution", "") or map_render.DEFAULT_BASEMAP_ATTRIBUTION
+    # only_layers: comma-separated layer-name allowlist (empty = auto-discover
+    # every cached layer, the global-map behaviour). Lets the nuclear/volcano
+    # workflows render a single focused layer instead of every cached source.
+    only = {s.strip() for s in (params.get("only_layers", "") or "").split(",") if s.strip()}
+    attribution_workflow = params.get("attribution_workflow", "") or ""
+    attribution_ffl_url = params.get("attribution_ffl_url", "") or ""
     step_log = params.get("_step_log")
 
     storage = get_storage()
-    candidates = [_NUCLEAR_LAYER] + _EPA_LAYERS + _openlittermap_layers(storage)
+    candidates = [_NUCLEAR_LAYER, _VOLCANO_LAYER] + _EPA_LAYERS + _openlittermap_layers(storage)
+    if only:
+        candidates = [layer for layer in candidates if layer.name in only]
     present: list[map_render.LayerSpec] = []
     for layer in candidates:
         geojson_path = sidecar_lib.cache_path(
@@ -180,6 +201,8 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
         storage=storage,
         basemap_url=basemap_url,
         basemap_attribution=basemap_attr,
+        attribution_workflow=attribution_workflow,
+        attribution_ffl_url=attribution_ffl_url,
     )
     _step_log(
         step_log,

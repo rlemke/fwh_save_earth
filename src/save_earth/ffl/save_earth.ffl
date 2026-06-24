@@ -166,6 +166,29 @@ namespace save_earth.sources {
         was_cached: Boolean,
         used_mock: Boolean
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
+    /** Download worldwide major (notable) volcanoes from OSM.
+      *
+      * Queries the OpenStreetMap Overpass API for every feature tagged
+      * ``natural=volcano`` that also carries a ``wikidata`` or ``wikipedia``
+      * tag — encyclopedic notability as the "major" proxy (OSM has no reliable
+      * global prominence/VEI tag), yielding ~1-2k worldwide. Every OSM tag is
+      * kept verbatim as the feature's properties so the map popup can surface
+      * all available information (name, ele, volcano:type, volcano:status, …).
+      * Coverage and tag completeness are OSM-community-driven. */
+    event facet DownloadVolcanoes(
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +220,10 @@ namespace save_earth.maps {
         zoom: Double = 4.0,
         basemap_url: String = "",
         basemap_attribution: String = "",
-        dependency_signal: Int = 0
+        dependency_signal: Int = 0,
+        only_layers: String = "",
+        attribution_workflow: String = "",
+        attribution_ffl_url: String = ""
     ) => (
         region_key: String,
         output_dir: String,
@@ -353,7 +379,10 @@ namespace save_earth.workflows {
             center_lat = $.center_lat,
             center_lon = $.center_lon,
             zoom = $.zoom,
-            dependency_signal = reactors.feature_count
+            dependency_signal = reactors.feature_count,
+            only_layers = "nuclear-reactors",
+            attribution_workflow = "save_earth.workflows.BuildNuclearReactorMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl"
         ) catch {
             yield BuildNuclearReactorMap(
                 status = "failed",
@@ -365,6 +394,55 @@ namespace save_earth.workflows {
             status = "completed",
             html_path = map.html_path,
             detail = "nuclear map with " ++ reactors.feature_count ++ " reactor/plant feature(s)"
+        )
+    }
+
+    /** Build an interactive world map of major (notable) volcanoes.
+      *
+      * Downloads the OSM volcano dataset (natural=volcano with a Wikipedia/
+      * Wikidata entry), then renders the auto-discovering MapLibre map with
+      * only the volcano layer. The layer has no curated field list, so
+      * clicking any volcano opens a popup showing every OSM attribute it
+      * carries (name, ele, volcano:type, volcano:status, …). */
+    workflow BuildVolcanoMap(
+        center_lat: Double = 20.0,
+        center_lon: Double = 10.0,
+        zoom: Double = 1.6,
+        use_mock: Boolean = false
+    ) => (
+        status: String,
+        html_path: String,
+        detail: String
+    ) andThen {
+        volcanoes = DownloadVolcanoes(
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildVolcanoMap(
+                status = "failed",
+                html_path = "",
+                detail = "volcano download failed"
+            )
+        }
+        map = BuildMap(
+            region = "volcanoes",
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            dependency_signal = volcanoes.feature_count,
+            only_layers = "volcanoes",
+            attribution_workflow = "save_earth.workflows.BuildVolcanoMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl"
+        ) catch {
+            yield BuildVolcanoMap(
+                status = "failed",
+                html_path = "",
+                detail = "map build failed"
+            )
+        }
+        yield BuildVolcanoMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = "volcano map with " ++ volcanoes.feature_count ++ " volcano(es)"
         )
     }
 }
