@@ -268,11 +268,11 @@ def _render_html(
           display: inline-block; width: 10px; height: 10px; border-radius: 50%;
           vertical-align: middle; margin-right: 6px;
         }
-        .maplibregl-popup-content { max-width: 320px; font-size: 12px; }
+        .maplibregl-popup-content { max-width: 340px; font-size: 12px; }
         .maplibregl-popup-content h4 { margin: 0 0 4px; font-size: 13px; }
-        .maplibregl-popup-content dl { margin: 4px 0 0; }
-        .maplibregl-popup-content dt { font-weight: 600; margin-top: 4px; color: #555; }
-        .maplibregl-popup-content dd { margin-left: 0; margin-bottom: 2px; }
+        table.attrs { border-collapse: collapse; margin-top: 4px; }
+        table.attrs td { padding: 1px 8px 1px 0; vertical-align: top; }
+        table.attrs td.k { font-weight: 600; color: #555; white-space: nowrap; }
         .attribution {
           position: absolute; bottom: 10px; left: 10px; z-index: 5;
           background: rgba(255,255,255,0.92); border-radius: 6px;
@@ -396,15 +396,15 @@ def _render_html(
                 : Object.keys(props);
               const rows = fields
                 .filter(k => props[k] !== undefined && props[k] !== null && props[k] !== '')
-                .map(k => `<dt>${{k}}</dt><dd>${{String(props[k])
-                    .replace(/&/g,'&amp;').replace(/</g,'&lt;')}}</dd>`)
+                .map(k => `<tr><td class="k">${{k}}</td><td>${{String(props[k])
+                    .replace(/&/g,'&amp;').replace(/</g,'&lt;')}}</td></tr>`)
                 .join('');
               const title = props.primary_name || props.SITE_NAME
                 || props.NAME || props.FACILITY_NAME
                 || props.title || props.description || spec.title;
               new maplibregl.Popup({{ closeButton: true }})
                 .setLngLat(e.lngLat)
-                .setHTML(`<h4>${{title}}</h4><dl>${{rows}}</dl>`)
+                .setHTML(`<h4>${{title}}</h4><table class="attrs">${{rows}}</table>`)
                 .addTo(map);
             }});
             map.on('mouseenter', spec.id, () => map.getCanvas().style.cursor = 'pointer');
