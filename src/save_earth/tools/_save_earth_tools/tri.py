@@ -50,7 +50,7 @@ if str(_TOOLS_ROOT) not in sys.path:
 from datetime import UTC
 
 from _save_earth_tools import sidecar  # noqa: E402
-from _save_earth_tools.storage import LocalStorage, Storage, local_staging_subdir  # noqa: E402
+from _save_earth_tools.storage import Storage, get_storage, local_staging_subdir  # noqa: E402
 
 try:
     import requests
@@ -139,7 +139,7 @@ def download(
     applied, so a later run that flips the flag invalidates the
     cache appropriately (the sidecar's flag won't match).
     """
-    s = storage or LocalStorage()
+    s = storage or get_storage()
     art_path = sidecar.cache_path(NAMESPACE, CACHE_TYPE, RELATIVE_PATH, s)
 
     with _lock:

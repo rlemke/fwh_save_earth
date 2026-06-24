@@ -44,7 +44,7 @@ if str(_TOOLS_ROOT) not in sys.path:
 from datetime import UTC
 
 from _save_earth_tools import sidecar  # noqa: E402
-from _save_earth_tools.storage import LocalStorage, Storage, local_staging_subdir  # noqa: E402
+from _save_earth_tools.storage import Storage, get_storage, local_staging_subdir  # noqa: E402
 
 try:
     import requests
@@ -120,7 +120,7 @@ def download(
                 "The /api/points endpoint rejects unbounded queries."
             )
 
-    s = storage or LocalStorage()
+    s = storage or get_storage()
     relative_path = _relative_path(mode, zoom, bbox)
     art_path = sidecar.cache_path(NAMESPACE, CACHE_TYPE, relative_path, s)
 

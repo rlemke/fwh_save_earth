@@ -38,6 +38,7 @@ from _save_earth_tools.storage import (
     LocalStorage,
     Storage,
     cache_root,
+    get_storage,
     locks_root,
     staging_root,
 )
@@ -47,7 +48,10 @@ SIDECAR_SUFFIX = ".meta.json"
 
 
 def _storage(storage: Storage | None) -> Storage:
-    return storage if storage is not None else LocalStorage()
+    # Default to the AFL_STORAGE-selected backend (local/hdfs/s3) so sidecar
+    # writes land alongside their artifact on the active backend, not always
+    # local. LocalStorage stays imported for the isinstance() branches below.
+    return storage if storage is not None else get_storage()
 
 
 def utcnow_iso() -> str:

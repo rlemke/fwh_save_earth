@@ -42,7 +42,7 @@ if str(_TOOLS_ROOT) not in sys.path:
 from datetime import UTC
 
 from _save_earth_tools import sidecar  # noqa: E402
-from _save_earth_tools.storage import LocalStorage, Storage, local_staging_subdir  # noqa: E402
+from _save_earth_tools.storage import Storage, get_storage, local_staging_subdir  # noqa: E402
 
 try:
     import requests
@@ -107,7 +107,7 @@ def download(
         raise ValueError(f"dataset must be one of {list(DEFAULT_URLS)}, got {dataset!r}")
     effective_url = url or DEFAULT_URLS[dataset]
     relative_path = f"{dataset}.geojson"
-    s = storage or LocalStorage()
+    s = storage or get_storage()
     art_path = sidecar.cache_path(NAMESPACE, CACHE_TYPE, relative_path, s)
 
     with _lock:

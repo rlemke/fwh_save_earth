@@ -32,7 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _save_earth_tools import epa_cleanups, map_render, openlittermap, sidecar, tri  # noqa: E402
-from _save_earth_tools.storage import LocalStorage  # noqa: E402
+from _save_earth_tools.storage import LocalStorage, get_storage  # noqa: E402,F401
 
 # EPA layers have fixed filenames. OpenLitterMap layers are auto-
 # discovered at render time (see _openlittermap_layers) because the
@@ -208,6 +208,11 @@ def main() -> int:
         default=map_render.DEFAULT_BASEMAP_ATTRIBUTION,
         help="Attribution HTML to display. Default cites OpenStreetMap + CARTO.",
     )
+    parser.add_argument(
+        "--backend",
+        default=None,
+        help="Storage backend override (local/hdfs/s3). Default: $AFL_STORAGE.",
+    )
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
 
@@ -218,7 +223,7 @@ def main() -> int:
     )
 
     center = _parse_center(args.center)
-    storage = LocalStorage()
+    storage = get_storage(args.backend)
 
     # Pick the layers with actual cached data present. Users with only
     # OpenLitterMap cached shouldn't be forced to download every EPA
