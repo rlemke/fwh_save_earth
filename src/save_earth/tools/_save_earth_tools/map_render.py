@@ -41,7 +41,7 @@ if str(_TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOLS_ROOT))
 
 from _save_earth_tools import sidecar  # noqa: E402
-from _save_earth_tools.storage import LocalStorage, Storage  # noqa: E402
+from _save_earth_tools.storage import Storage, get_storage  # noqa: E402
 
 NAMESPACE = "save-earth"
 CACHE_TYPE = "maps"
@@ -75,8 +75,8 @@ class LayerSpec:
 
 @dataclass
 class MapBundle:
-    output_dir: Path
-    html_path: Path
+    output_dir: str  # may be a local path or an s3:// URI
+    html_path: str  # may be a local path or an s3:// URI
     layer_counts: dict[str, int]  # layer name → feature count included
     region_key: str
 
@@ -99,7 +99,7 @@ def render_map(
     data actually included — that is governed by the LayerSpec's
     ``source_relative_path``.
     """
-    s = storage or LocalStorage()
+    s = storage or get_storage()
 
     loaded_layers: list[tuple[LayerSpec, dict[str, Any]]] = []
     counts: dict[str, int] = {}
@@ -107,13 +107,13 @@ def render_map(
         geojson_path = sidecar.cache_path(
             NAMESPACE, layer.source_cache_type, layer.source_relative_path, s
         )
-        if not os.path.exists(geojson_path):
+        if not s.exists(geojson_path):
             raise FileNotFoundError(
                 f"layer {layer.name!r} expects cached GeoJSON at {geojson_path} — "
                 f"run the matching download-* tool first"
             )
-        with open(geojson_path, encoding="utf-8") as f:
-            data = json.load(f)
+        # read_text resolves local paths and s3:// URIs uniformly
+        data = json.loads(s.read_text(geojson_path))
         if data.get("type") != "FeatureCollection":
             raise ValueError(f"{geojson_path} is not a FeatureCollection — aborting")
         loaded_layers.append((layer, data))
@@ -129,8 +129,10 @@ def render_map(
     )
 
     out_dir = _resolve_output_dir(region_key, output_dir=output_dir, storage=s)
-    html_path = out_dir / "index.html"
-    html_path.write_text(html, encoding="utf-8")
+    # write_text_atomic finalizes to local disk or the s3 object store
+    # depending on the active backend (no Path() on an s3:// URI).
+    html_path = s.join(out_dir, "index.html")
+    s.write_text_atomic(html_path, html)
 
     body_bytes = html.encode("utf-8")
     rel = f"{region_key}/index.html"
@@ -163,13 +165,18 @@ def _resolve_output_dir(
     *,
     output_dir: Path | None,
     storage: Storage,
-) -> Path:
+) -> str:
+    """Return the output directory as a string (a local path or s3:// URI).
+
+    ``storage.mkdir_p`` makes parent dirs on local/hdfs and is a no-op on s3
+    (key prefixes are implicit), so this never does ``Path()`` on an s3 URI.
+    """
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
-        return output_dir
+        return str(output_dir)
     abs_dir = sidecar.cache_path(NAMESPACE, CACHE_TYPE, region_key, storage)
-    Path(abs_dir).mkdir(parents=True, exist_ok=True)
-    return Path(abs_dir)
+    storage.mkdir_p(abs_dir)
+    return abs_dir
 
 
 def _layer_meta(layer: LayerSpec) -> dict[str, Any]:

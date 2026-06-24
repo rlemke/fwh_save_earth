@@ -10,11 +10,18 @@ datasets into an interactive map:
   - **EPA Superfund (NPL)** + **Brownfields (ACRES)** — authoritative
     remediation sites
   - **EPA Toxic Release Inventory (TRI)** — facility-level toxic release points
+  - **OSM nuclear** — worldwide nuclear reactors + plants from the OpenStreetMap
+    Overpass API (every OSM tag kept verbatim)
 - **Map build** — `save_earth.maps.BuildMap` auto-discovers every cached layer
   and renders a self-contained MapLibre HTML bundle (CARTO Voyager basemap,
-  no API key, works from `file://`).
-- **Workflows** — `BuildGlobalMap` / `BuildRegionalMap` download in parallel
-  (with `catch` blocks for graceful partial failure) and chain into the map build.
+  no API key, works from `file://`). Click popups surface a feature's full
+  `properties`; a layer with no curated field list shows **every** property.
+- **Workflows** — `BuildGlobalMap` / `BuildRegionalMap` / `BuildNuclearReactorMap`
+  download in parallel (with `catch` blocks for graceful partial failure) and
+  chain into the map build.
+- **Storage** — caches + map outputs follow `AFL_STORAGE`: `local`, `hdfs`, or
+  `s3` (the fleet MinIO). Downloads stage locally and finalize onto the active
+  backend, so an object store needs no shared filesystem.
 
 The CLI tools in `src/save_earth/tools/` and the FFL handlers share one
 `_save_earth_tools/` implementation and one on-disk cache (`$AFL_DATA_ROOT/cache/save-earth/`)
@@ -67,7 +74,7 @@ fwh_save_earth/
 │   ├── ffl/save_earth.ffl               # schemas, mixins, facets, workflows
 │   ├── handlers/
 │   │   ├── __init__.py                  # register_all_registry_handlers(runner)
-│   │   ├── sources/source_handlers.py   # DownloadOpenLitterMap / DownloadEpaCleanups / DownloadTri
+│   │   ├── sources/source_handlers.py   # DownloadOpenLitterMap / DownloadEpaCleanups / DownloadTri / DownloadNuclearReactors
 │   │   ├── maps/map_handlers.py         # BuildMap
 │   │   └── shared/save_earth_utils.py   # sys.path shim re-exporting tools/_save_earth_tools
 │   └── tools/                           # CLIs + shell wrappers, backed by tools/_save_earth_tools/

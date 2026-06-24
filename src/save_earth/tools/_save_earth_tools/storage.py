@@ -57,6 +57,7 @@ from typing import IO
 
 LOCAL_DEFAULT_ROOT = "/Volumes/afl_data"
 HDFS_DEFAULT_ROOT = "/user/afl"
+S3_DEFAULT_ROOT = "s3://afl-cache"
 
 
 class Storage(abc.ABC):
@@ -142,6 +143,16 @@ class Storage(abc.ABC):
         if "/" not in path:
             return ""
         return path.rsplit("/", 1)[0]
+
+    def localize(self, path: str) -> str:
+        """Return a LOCAL filesystem path for reading ``path``.
+
+        Default (local/hdfs): the path itself. The S3 backend overrides
+        this to download ``path`` into a local read-through cache and
+        return that, so readers needing a real file handle work
+        regardless of where the durable artifact lives.
+        """
+        return path
 
 
 class LocalStorage(Storage):
@@ -375,6 +386,151 @@ class HdfsStorage(Storage):
         os.unlink(local_path)
 
 
+def local_scratch_root() -> str:
+    """A guaranteed-LOCAL scratch root (never s3/hdfs).
+
+    ``AFL_DATA_ROOT`` may point at an object store (``s3://…``), which would
+    poison the derived staging/tmp roots for every backend — so they can't be
+    trusted for the local-disk staging that downloads + read-through caches
+    require. ``AFL_LOCAL_SCRATCH`` is the explicit local scratch dir;
+    otherwise fall back to a temp dir.
+    """
+    return os.environ.get("AFL_LOCAL_SCRATCH") or os.path.join(
+        tempfile.gettempdir(), "afl-scratch"
+    )
+
+
+def _localized_path(remote_path: str) -> str:
+    """Deterministic local read-cache location mirroring a remote path's key."""
+    key = remote_path.split("://", 1)[1] if "://" in remote_path else remote_path
+    return os.path.join(local_scratch_root(), "localized", key.lstrip("/"))
+
+
+class S3Storage(Storage):
+    """S3 / MinIO backend — delegates to ``facetwork.runtime.storage`` (the same
+    object store the platform writes step payloads to), so handlers that go
+    through the Storage abstraction work unchanged on ``AFL_STORAGE=s3``.
+
+    S3 has no directories or locking: ``mkdir_p`` is a no-op (key prefixes are
+    implicit), ``lock`` yields (object PUT is atomic-on-close). ``rename`` and
+    the finalize helpers copy-then-delete via streamed object I/O.
+    """
+
+    name = "s3"
+
+    def __init__(self) -> None:
+        try:
+            from facetwork.runtime.storage import S3StorageBackend
+        except ImportError as exc:
+            raise RuntimeError(
+                "S3 backend unavailable: could not import "
+                "facetwork.runtime.storage.S3StorageBackend (requires the "
+                f"Facetwork runtime package). Underlying error: {exc}"
+            ) from exc
+        self._backend = S3StorageBackend()
+
+    @property
+    def supports_locking(self) -> bool:
+        return False
+
+    def exists(self, path: str) -> bool:
+        return self._backend.exists(path)
+
+    def size(self, path: str) -> int:
+        return self._backend.getsize(path)
+
+    def mkdir_p(self, path: str) -> None:
+        if path:
+            self._backend.makedirs(path, exist_ok=True)
+
+    def unlink(self, path: str) -> None:
+        try:
+            self._backend.remove(path)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            if not self._backend.exists(path):
+                return
+            raise
+
+    def _stream_copy(self, src_open, dst_path: str) -> None:
+        parent = self.dirname(dst_path)
+        if parent:
+            self.mkdir_p(parent)
+        with src_open() as src, self._backend.open(dst_path, "wb") as dst:
+            while True:
+                chunk = src.read(1024 * 1024)
+                if not chunk:
+                    break
+                dst.write(chunk)
+
+    def rename(self, src: str, dst: str) -> None:
+        if self._backend.exists(dst):
+            self.unlink(dst)
+        self._stream_copy(lambda: self._backend.open(src, "rb"), dst)
+        self.unlink(src)
+
+    def read_text(self, path: str) -> str:
+        with self._backend.open(path, "r") as f:
+            return f.read()
+
+    def write_text_atomic(self, path: str, text: str) -> None:
+        parent = self.dirname(path)
+        if parent:
+            self.mkdir_p(parent)
+        with self._backend.open(path, "w") as f:
+            f.write(text)
+
+    def open_write_binary(self, path: str) -> IO[bytes]:
+        parent = self.dirname(path)
+        if parent:
+            self.mkdir_p(parent)
+        return self._backend.open(path, "wb")
+
+    @contextmanager
+    def lock(self, path: str, *, exclusive: bool) -> Iterator[None]:
+        yield
+
+    def finalize_from_local(self, local_path: str, dst_path: str) -> None:
+        self._stream_copy(lambda: open(local_path, "rb"), dst_path)
+        # Warm the local read-through cache from the file we already have on
+        # disk, so the next localize(dst_path) is a no-op, not a download.
+        lp = _localized_path(dst_path)
+        os.makedirs(os.path.dirname(lp), exist_ok=True)
+        shutil.copyfile(local_path, lp)
+        os.unlink(local_path)
+
+    def localize(self, path: str) -> str:
+        if "://" not in path:
+            return path  # already local
+        lp = _localized_path(path)
+        try:
+            if os.path.exists(lp) and os.path.getsize(lp) == self.size(path):
+                return lp
+        except Exception:  # noqa: BLE001 - size probe best-effort
+            pass
+        os.makedirs(os.path.dirname(lp), exist_ok=True)
+        with self._backend.open(path, "rb") as src, open(lp, "wb") as dst:
+            while True:
+                chunk = src.read(1024 * 1024)
+                if not chunk:
+                    break
+                dst.write(chunk)
+        return lp
+
+    def finalize_dir_from_local(self, local_dir: str, dst_dir: str) -> None:
+        for root, _dirs, files in os.walk(local_dir):
+            rel = os.path.relpath(root, local_dir)
+            for fname in files:
+                local_path = os.path.join(root, fname)
+                key = fname if rel == "." else f"{rel}/{fname}"
+                self._stream_copy(
+                    lambda lp=local_path: open(lp, "rb"),
+                    self.join(dst_dir, key),
+                )
+        shutil.rmtree(local_dir, ignore_errors=True)
+
+
 # ---------------------------------------------------------------------------
 # Backend selection.
 # ---------------------------------------------------------------------------
@@ -390,7 +546,11 @@ def get_storage(backend: str | None = None) -> Storage:
         return LocalStorage()
     if name == "hdfs":
         return HdfsStorage()
-    raise ValueError(f"Unknown storage backend: {name!r} (expected 'local' or 'hdfs')")
+    if name == "s3":
+        return S3Storage()
+    raise ValueError(
+        f"Unknown storage backend: {name!r} (expected 'local', 'hdfs', or 's3')"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -408,7 +568,11 @@ def data_root(backend: str | None = None) -> str:
     if env:
         return env
     name = (backend or default_backend()).lower()
-    return HDFS_DEFAULT_ROOT if name == "hdfs" else LOCAL_DEFAULT_ROOT
+    if name == "hdfs":
+        return HDFS_DEFAULT_ROOT
+    if name == "s3":
+        return S3_DEFAULT_ROOT
+    return LOCAL_DEFAULT_ROOT
 
 
 def _derived_root(env_var: str, subdir: str, backend: str | None = None) -> str:

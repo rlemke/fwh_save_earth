@@ -39,6 +39,7 @@ Every arrow is sidecar-mediated: each artifact has a sibling `.meta.json` with s
 | `download-openlittermap` | `--mode {clusters,points}`, `--zoom`, `--bbox` | `openlittermap/<mode>-zoom<N>[_<bbox>].geojson` | Fetch crowd-sourced litter observations. Default: global clusters at zoom 4. Individual photos (`--mode points`) require `--zoom>=15` and a bbox (server-enforced). |
 | `download-epa-cleanups` | `--dataset {superfund,brownfields}` (repeatable) | `epa-cleanups/<dataset>.geojson` | Fetch EPA authoritative remediation-site data from `geopub.epa.gov/EMEF/efpoints` (auto-paginates past the 10,000-record server cap) |
 | `download-tri` | `--include-closed` / `--force` / `--use-mock` | `tri/facilities.geojson` | Fetch the EPA Toxic Release Inventory facility table (~65k facilities) from `data.epa.gov/efservice/`. Paginates past the 10k-row cap; negates longitude for western-hemisphere state codes (the DB stores longitude unsigned). Default filter drops closed facilities. |
+| `download-nuclear-reactors` | `--force` / `--use-mock` / `--backend {local,hdfs,s3}` | `nuclear/reactors.geojson` | Fetch worldwide nuclear power reactors & plants from OpenStreetMap via the Overpass API (`generator:source=nuclear` reactors + `plant:source=nuclear` stations, polygons centroided). Every OSM tag is kept verbatim so the map popup surfaces all available info. Coverage/tag-completeness is OSM-community-driven. |
 | `build-save-earth-map` | `--region`, `--center`, `--zoom` | `maps/<region>/index.html` | Stitch every cached layer into a single MapLibre HTML page |
 
 Every tool supports:
@@ -57,12 +58,17 @@ Defaults are real endpoints; if an upstream URL rotates, pass `--url` and it'll 
 | **EPA Superfund NPL** — `geopub.epa.gov/EMEF/efpoints` layer 0 | Points | US Government public domain | ~1,400 NPL sites |
 | **EPA Brownfields (ACRES)** — `geopub.epa.gov/EMEF/efpoints` layer 5 | Points | US Government public domain | ~40,000+ redevelopment sites |
 | **EPA TRI** — `data.epa.gov/efservice/TRI_FACILITY` | Points | US Government public domain | ~65,000 Toxic Release Inventory reporters (all time); ~35,000 currently active |
+| **OSM nuclear** — Overpass API (`generator:source=nuclear` / `plant:source=nuclear`) | Points | ODbL 1.0 (OpenStreetMap contributors) | ~1,000 worldwide reactors + plants; per-feature properties are the verbatim OSM tags (name, operator, output:electricity, start_date, generator:method, …) |
 
 Feature popups preserve the upstream `properties` so every point carries a real name, status, description, and (where available) a link back to the source system.
 
 ## Cache layout
 
-All outputs live at `$AFL_CACHE_ROOT/save-earth/` (default: `/Volumes/afl_data/cache/save-earth/`):
+All outputs live at `$AFL_CACHE_ROOT/save-earth/` on whichever backend
+`AFL_STORAGE` selects — `local` (default: `/Volumes/afl_data/cache/save-earth/`),
+`hdfs`, or `s3` (the fleet MinIO, `s3://afl-cache/cache/save-earth/`). Downloads
+always stage to local disk and finalize onto the active backend, so an object
+store works with no shared filesystem:
 
 ```
 cache/save-earth/
@@ -74,6 +80,8 @@ cache/save-earth/
 │   └── brownfields.geojson + .meta.json
 ├── tri/
 │   └── facilities.geojson + .meta.json   ← EPA TRI facility points
+├── nuclear/
+│   └── reactors.geojson + .meta.json     ← OSM nuclear reactors + plants
 └── maps/
     └── <region>/
         ├── index.html
@@ -142,10 +150,11 @@ The HTML page ships with:
 | Module | Role |
 |--------|------|
 | `sidecar.py` | Per-entry `.meta.json` read/write, per-entry locking |
-| `storage.py` | LocalStorage / HdfsStorage abstraction + root-path derivation |
+| `storage.py` | LocalStorage / HdfsStorage / **S3Storage** abstraction (`get_storage()` selects by `AFL_STORAGE`) + root-path derivation. S3Storage delegates to `facetwork.runtime.storage.S3StorageBackend` (the fleet MinIO) with a local read-through cache (`localize()`). |
 | `openlittermap.py` | OpenLitterMap fetch + cache + GeoJSON normalization (supports `clusters` and `points` modes; modes/zoom/bbox each cache in their own entry) |
 | `epa_cleanups.py` | EPA Superfund / Brownfield fetch via `geopub.epa.gov/EMEF/efpoints` MapServer — auto-paginates past the 10 k-record server cap |
-| `map_render.py` | MapLibre HTML renderer — inlines each cached GeoJSON as a toggleable layer with click popups and the Big-Dots toggle |
+| `nuclear.py` | OSM nuclear-power fetch via Overpass (reactors + plants, polygons centroided) — keeps every tag verbatim as the feature's properties |
+| `map_render.py` | MapLibre HTML renderer — inlines each cached GeoJSON as a toggleable layer with click popups and the Big-Dots toggle. Storage-aware (reads via `read_text`, writes via `write_text_atomic`), so it renders straight to local disk or the object store. |
 
 The downloaders are pure fetch-and-cache — no transformation beyond normalizing the wrapper shape to a valid FeatureCollection. All per-feature metadata is preserved verbatim so popups can surface it.
 
@@ -157,12 +166,15 @@ Every CLI tool has a matching FFL event facet in `../ffl/save_earth.ffl`:
 |------|-----------|
 | `download-openlittermap` | `save_earth.sources.DownloadOpenLitterMap(mode, zoom, bbox, force, use_mock)` |
 | `download-epa-cleanups` | `save_earth.sources.DownloadEpaCleanups(dataset, force, use_mock)` |
+| `download-tri` | `save_earth.sources.DownloadTri(active_only, force, use_mock)` |
+| `download-nuclear-reactors` | `save_earth.sources.DownloadNuclearReactors(force, use_mock)` |
 | `build-save-earth-map` | `save_earth.maps.BuildMap(region, center_lat, center_lon, zoom, basemap_url, basemap_attribution, dependency_signal)` |
 
 Workflows:
 
 - `save_earth.workflows.BuildGlobalMap` — OLM clusters + Superfund + Brownfields in parallel, then BuildMap.
 - `save_earth.workflows.BuildRegionalMap` — region-scoped OLM zoom + Superfund, then BuildMap.
+- `save_earth.workflows.BuildNuclearReactorMap` — DownloadNuclearReactors → BuildMap. The nuclear layer registers with no curated field list, so clicking a reactor pops up **every** OSM tag (the "show all information" requirement).
 
 Handlers are thin dispatchers (`handlers/sources/`, `handlers/maps/`) that import from `tools/_save_earth_tools/` via `handlers/shared/save_earth_utils.py` — same code path as the CLI.
 

@@ -13,6 +13,7 @@ from typing import Any
 
 from ..shared.save_earth_utils import (
     epa_cleanups,
+    nuclear,
     openlittermap,
     parse_bbox,
     tri,
@@ -121,6 +122,23 @@ def handle_download_epa_cleanups(params: dict[str, Any]) -> dict[str, Any]:
     return {"cache_type": epa_cleanups.CACHE_TYPE, **_result_payload(res)}
 
 
+def handle_download_nuclear_reactors(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadNuclearReactors — worldwide nuclear power features from OSM."""
+    force = bool(params.get("force", False))
+    use_mock = bool(params.get("use_mock", False))
+    step_log = params.get("_step_log")
+
+    _step_log(step_log, f"DownloadNuclearReactors force={force} use_mock={use_mock}")
+    res = nuclear.download(force=force, use_mock=use_mock)
+    status = "cache" if res.was_cached else ("mock" if res.used_mock else "download")
+    _step_log(
+        step_log,
+        f"[{status}] nuclear/{res.relative_path}  {res.feature_count:,} reactors/plants",
+        "success",
+    )
+    return {"cache_type": nuclear.CACHE_TYPE, **_result_payload(res)}
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -129,6 +147,7 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadOpenLitterMap": handle_download_openlittermap,
     f"{NAMESPACE}.DownloadEpaCleanups": handle_download_epa_cleanups,
     f"{NAMESPACE}.DownloadTri": handle_download_tri,
+    f"{NAMESPACE}.DownloadNuclearReactors": handle_download_nuclear_reactors,
 }
 
 

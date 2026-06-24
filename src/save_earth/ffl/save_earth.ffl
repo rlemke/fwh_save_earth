@@ -142,6 +142,30 @@ namespace save_earth.sources {
         was_cached: Boolean,
         used_mock: Boolean
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
+    /** Download worldwide nuclear power reactors & plants from OSM.
+      *
+      * Queries the OpenStreetMap Overpass API for every feature tagged
+      * ``generator:source=nuclear`` (an individual reactor) or
+      * ``plant:source=nuclear`` (a whole station), centroiding any
+      * way/relation polygon to a Point. Every OSM tag is kept verbatim
+      * as the feature's properties, so the map popup can surface all
+      * available information (name, operator, output:electricity,
+      * start_date, reactor method, status, …). Coverage and tag
+      * completeness are OSM-community-driven and vary by country. */
+    event facet DownloadNuclearReactors(
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +318,53 @@ namespace save_earth.workflows {
         yield BuildRegionalMap(
             status = "completed",
             html_path = map.html_path
+        )
+    }
+
+    /** Build an interactive world map of nuclear reactors & plants.
+      *
+      * Downloads the OSM nuclear dataset, then renders the auto-
+      * discovering MapLibre map. The nuclear layer is registered with
+      * no curated field list, so clicking any reactor opens a popup
+      * showing every attribute the dataset carries. ``dependency_signal``
+      * references the download's ``feature_count`` so the runtime
+      * sequences the map build strictly after the data is cached. */
+    workflow BuildNuclearReactorMap(
+        center_lat: Double = 25.0,
+        center_lon: Double = 10.0,
+        zoom: Double = 2.0,
+        use_mock: Boolean = false
+    ) => (
+        status: String,
+        html_path: String,
+        detail: String
+    ) andThen {
+        reactors = DownloadNuclearReactors(
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildNuclearReactorMap(
+                status = "failed",
+                html_path = "",
+                detail = "nuclear reactor download failed"
+            )
+        }
+        map = BuildMap(
+            region = "nuclear",
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            dependency_signal = reactors.feature_count
+        ) catch {
+            yield BuildNuclearReactorMap(
+                status = "failed",
+                html_path = "",
+                detail = "map build failed"
+            )
+        }
+        yield BuildNuclearReactorMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = "nuclear map with " ++ reactors.feature_count ++ " reactor/plant feature(s)"
         )
     }
 }

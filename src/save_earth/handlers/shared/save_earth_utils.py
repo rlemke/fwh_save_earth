@@ -29,11 +29,12 @@ if str(_TOOLS_ROOT) not in sys.path:
 from _save_earth_tools import (  # noqa: E402,F401
     epa_cleanups,
     map_render,
+    nuclear,
     openlittermap,
     sidecar,
     tri,
 )
-from _save_earth_tools.storage import LocalStorage  # noqa: E402,F401
+from _save_earth_tools.storage import LocalStorage, get_storage  # noqa: E402,F401
 
 
 def parse_bbox(s: str) -> tuple[float, float, float, float] | None:
@@ -55,8 +56,10 @@ def parse_bbox(s: str) -> tuple[float, float, float, float] | None:
 
 __all__ = [
     "LocalStorage",
+    "get_storage",
     "epa_cleanups",
     "map_render",
+    "nuclear",
     "openlittermap",
     "parse_bbox",
     "sidecar",

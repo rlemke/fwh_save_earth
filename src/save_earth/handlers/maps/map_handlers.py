@@ -8,8 +8,9 @@ import os
 from typing import Any
 
 from ..shared.save_earth_utils import (
-    LocalStorage,
+    get_storage,
     map_render,
+    nuclear,
     openlittermap,
 )
 from ..shared.save_earth_utils import (
@@ -68,6 +69,20 @@ _EPA_LAYERS: list[map_render.LayerSpec] = [
     ),
 ]
 
+# Nuclear power features (OSM via Overpass). description_fields is left
+# None on purpose: with no curated list the renderer falls back to
+# Object.keys(props), so clicking a reactor pops up EVERY OSM tag the
+# dataset carries — the "show all available information" requirement.
+_NUCLEAR_LAYER = map_render.LayerSpec(
+    name="nuclear-reactors",
+    title="Nuclear power reactors & plants (OSM)",
+    source_cache_type=nuclear.CACHE_TYPE,
+    source_relative_path=nuclear.RELATIVE_PATH,
+    color="#2e7d32",
+    radius=8,
+    description_fields=None,
+)
+
 _OLM_DESCRIPTION_FIELDS = [
     "point_count",
     "point_count_abbreviated",
@@ -80,8 +95,11 @@ _OLM_DESCRIPTION_FIELDS = [
 _OLM_COLORS = ["#d9534f", "#e57373", "#f06292", "#ba68c8", "#7986cb"]
 
 
-def _openlittermap_layers(storage: LocalStorage) -> list[map_render.LayerSpec]:
+def _openlittermap_layers(storage) -> list[map_render.LayerSpec]:
     olm_dir = sidecar_lib.cache_path(map_render.NAMESPACE, openlittermap.CACHE_TYPE, "", storage)
+    # os.path.isdir is False for an s3:// prefix, so OLM auto-discovery is a
+    # no-op on object storage (not needed for the nuclear workflow). Local
+    # deployments still enumerate the cached OLM files here.
     if not os.path.isdir(olm_dir):
         return []
     layers: list[map_render.LayerSpec] = []
@@ -119,8 +137,8 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     basemap_attr = params.get("basemap_attribution", "") or map_render.DEFAULT_BASEMAP_ATTRIBUTION
     step_log = params.get("_step_log")
 
-    storage = LocalStorage()
-    candidates = _EPA_LAYERS + _openlittermap_layers(storage)
+    storage = get_storage()
+    candidates = [_NUCLEAR_LAYER] + _EPA_LAYERS + _openlittermap_layers(storage)
     present: list[map_render.LayerSpec] = []
     for layer in candidates:
         geojson_path = sidecar_lib.cache_path(
@@ -129,7 +147,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
             layer.source_relative_path,
             storage,
         )
-        if os.path.exists(geojson_path):
+        if storage.exists(geojson_path):
             present.append(layer)
         else:
             logger.info("skipping layer %s — no cache at %s", layer.name, geojson_path)
