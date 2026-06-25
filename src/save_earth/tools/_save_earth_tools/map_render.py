@@ -290,6 +290,17 @@ def _render_html(
           display: inline-block; width: 12px; height: 12px; border-radius: 50%;
           margin-right: 7px; border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.25);
         }
+        .search { position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+          z-index: 6; width: 290px; max-width: 70%; }
+        .search input { width: 100%; box-sizing: border-box; padding: 7px 11px;
+          border: 1px solid #aaa; border-radius: 6px; font-size: 13px;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+        .search .results { background: #fff; border-radius: 0 0 6px 6px;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.2); max-height: 240px; overflow: auto; }
+        .search .results div { padding: 6px 11px; cursor: pointer; font-size: 12px;
+          border-top: 1px solid #f0f0f0; }
+        .search .results div:hover { background: #f3f3f3; }
+        .search .results .sub { color: #888; }
         .maplibregl-popup-content { max-width: 340px; font-size: 12px; }
         .maplibregl-popup-content h4 { margin: 0 0 4px; font-size: 13px; }
         table.attrs { border-collapse: collapse; margin-top: 4px; }
@@ -497,6 +508,45 @@ def _render_html(
             ));
             panel.appendChild(label);
           }}
+
+          // --- Name search: type to fly to a matching feature + open its popup.
+          const sidx = [];
+          for (const spec of LAYER_SPECS) {{
+            const data = LAYER_DATA[spec.id]; if (!data) continue;
+            for (const f of data.features) {{
+              const p = f.properties || {{}};
+              const nm = p.name || p.primary_name || p.NAME || p.FACILITY_NAME || '';
+              if (nm) sidx.push({{ name: nm, sub: p.amenity || p['addr:city'] || p.operator || '',
+                                   coords: f.geometry.coordinates, props: p, spec }});
+            }}
+          }}
+          function popupFor(o) {{
+            const fields = o.spec.description_fields.length ? o.spec.description_fields : Object.keys(o.props);
+            const rows = fields
+              .filter(k => o.props[k] !== undefined && o.props[k] !== null && o.props[k] !== '')
+              .map(k => `<tr><td class="k">${{k}}</td><td>${{String(o.props[k])
+                  .replace(/&/g,'&amp;').replace(/</g,'&lt;')}}</td></tr>`).join('');
+            new maplibregl.Popup({{ closeButton: true }}).setLngLat(o.coords)
+              .setHTML(`<h4>${{o.name}}</h4><table class="attrs">${{rows}}</table>`).addTo(map);
+          }}
+          const sbox = document.getElementById('vsearch'), sres = document.getElementById('vresults');
+          sbox.addEventListener('input', () => {{
+            const q = sbox.value.trim().toLowerCase(); sres.innerHTML = '';
+            if (q.length < 2) return;
+            const hits = sidx.filter(x => x.name.toLowerCase().includes(q)).slice(0, 12);
+            for (const h of hits) {{
+              const d = document.createElement('div');
+              d.innerHTML = `${{h.name}}` + (h.sub ? ` <span class="sub">${{h.sub}}</span>` : '');
+              d.addEventListener('click', () => {{
+                map.flyTo({{ center: h.coords, zoom: 13 }});
+                sres.innerHTML = ''; sbox.value = h.name; popupFor(h);
+              }});
+              sres.appendChild(d);
+            }}
+          }});
+          document.addEventListener('click', (e) => {{
+            if (!e.target.closest('.search')) sres.innerHTML = '';
+          }});
         }});
         """
     )
@@ -513,6 +563,8 @@ def _render_html(
         </head>
         <body>
         <div id="map"></div>
+        <div class="search"><input id="vsearch" placeholder="Find by name…" autocomplete="off">
+          <div class="results" id="vresults"></div></div>
         {info_html}
         <div class="panel" id="panel">
           <h3>Layers</h3>
