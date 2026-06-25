@@ -279,6 +279,17 @@ def _render_html(
           display: inline-block; width: 10px; height: 10px; border-radius: 50%;
           vertical-align: middle; margin-right: 6px;
         }
+        .ptlegend {
+          position: absolute; bottom: 10px; right: 10px; z-index: 5;
+          background: rgba(255,255,255,0.95); border-radius: 6px;
+          padding: 8px 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); font-size: 12px;
+        }
+        .ptlegend b { display: block; margin-bottom: 4px; font-size: 13px; }
+        .ptlegend .row { display: flex; align-items: center; margin: 2px 0; }
+        .ptlegend .dot {
+          display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+          margin-right: 7px; border: 1.5px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.25);
+        }
         .maplibregl-popup-content { max-width: 340px; font-size: 12px; }
         .maplibregl-popup-content h4 { margin: 0 0 4px; font-size: 13px; }
         table.attrs { border-collapse: collapse; margin-top: 4px; }
@@ -325,6 +336,14 @@ def _render_html(
     info_html = (
         f'<div class="info"><p>{html_mod.escape(description)}</p></div>' if description else ""
     )
+
+    # Bottom-right legend: a coloured dot per layer with its feature count.
+    legend_rows = "".join(
+        f'<div class="row"><span class="dot" style="background:{html_mod.escape(layer.color)}">'
+        f"</span>{html_mod.escape(layer.title)} ({len(data.get('features') or []):,})</div>"
+        for layer, data in loaded_layers
+    )
+    ptlegend_html = f'<div class="ptlegend"><b>Legend</b>{legend_rows}</div>' if loaded_layers else ""
 
     script = textwrap.dedent(
         f"""\
@@ -498,6 +517,7 @@ def _render_html(
         <div class="panel" id="panel">
           <h3>Layers</h3>
         </div>
+        {ptlegend_html}
         {attribution_html}
         <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
         <script>
