@@ -326,9 +326,12 @@ def _render_html(
     if attribution_workflow:
         wf = html_mod.escape(attribution_workflow)
         if attribution_ffl_url:
+            repo_url = attribution_ffl_url.split("/blob/")[0]
             ffl_link = (
                 f' &middot; <a href="{html_mod.escape(attribution_ffl_url)}" '
                 f'target="_blank" rel="noopener">view FFL</a>'
+                f' &middot; <a href="{html_mod.escape(repo_url)}" '
+                f'target="_blank" rel="noopener">source repo</a>'
             )
         else:
             ffl_link = ""
