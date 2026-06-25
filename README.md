@@ -12,13 +12,24 @@ datasets into an interactive map:
   - **EPA Toxic Release Inventory (TRI)** — facility-level toxic release points
   - **OSM nuclear** — worldwide nuclear reactors + plants from the OpenStreetMap
     Overpass API (every OSM tag kept verbatim)
+  - **OSM volcanoes** — major (notable) volcanoes from OSM
+  - **OSM LGBTQ+ venues** — LGBTQ+ bars, pubs, clubs & restaurants from OSM
+  - **USGS earthquakes** — recent significant quakes (M4.5+, past 30 days) from
+    the USGS real-time GeoJSON feed (properties verbatim + derived `depth_km`)
+  - **Fault lines** — tectonic plate boundaries (Peter Bird 2002 `PB2002`),
+    LineString geometry — the world-scale fault systems
 - **Map build** — `save_earth.maps.BuildMap` auto-discovers every cached layer
   and renders a self-contained MapLibre HTML bundle (CARTO Voyager basemap,
-  no API key, works from `file://`). Click popups surface a feature's full
-  `properties`; a layer with no curated field list shows **every** property.
+  no API key, works from `file://`). Layers render as points (circles) or
+  **lines** (faults/boundaries); a point layer may scale its radius + colour by
+  a numeric property (e.g. earthquake **magnitude**). Click popups surface a
+  feature's full `properties` (a `name` property is listed first); a layer with
+  no curated field list shows **every** property. A name search + per-layer
+  toggles are built in.
 - **Workflows** — `BuildGlobalMap` / `BuildRegionalMap` / `BuildNuclearReactorMap`
-  download in parallel (with `catch` blocks for graceful partial failure) and
-  chain into the map build.
+  / `BuildVolcanoMap` / `BuildLgbtqVenueMap` / `BuildSeismicMap` (earthquakes
+  over the fault lines) download in parallel (with `catch` blocks for graceful
+  partial failure) and chain into the map build.
 - **Storage** — caches + map outputs follow `AFL_STORAGE`: `local`, `hdfs`, or
   `s3` (the fleet MinIO). Downloads stage locally and finalize onto the active
   backend, so an object store needs no shared filesystem.
@@ -74,7 +85,7 @@ fwh_save_earth/
 │   ├── ffl/save_earth.ffl               # schemas, mixins, facets, workflows
 │   ├── handlers/
 │   │   ├── __init__.py                  # register_all_registry_handlers(runner)
-│   │   ├── sources/source_handlers.py   # DownloadOpenLitterMap / DownloadEpaCleanups / DownloadTri / DownloadNuclearReactors
+│   │   ├── sources/source_handlers.py   # Download{OpenLitterMap,EpaCleanups,Tri,NuclearReactors,Volcanoes,LgbtqVenues,Earthquakes,Faults}
 │   │   ├── maps/map_handlers.py         # BuildMap
 │   │   └── shared/save_earth_utils.py   # sys.path shim re-exporting tools/_save_earth_tools
 │   └── tools/                           # CLIs + shell wrappers, backed by tools/_save_earth_tools/
