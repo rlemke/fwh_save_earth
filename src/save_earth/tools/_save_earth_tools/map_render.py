@@ -68,9 +68,13 @@ class LayerSpec:
     title: str  # human-readable title ("Litter observations")
     source_cache_type: str  # cache_type inside NAMESPACE
     source_relative_path: str  # relative path of the cached GeoJSON
-    color: str  # CSS colour for the circles
+    color: str  # CSS colour for the circles / lines
     radius: int = 5  # circle radius in px
     description_fields: list[str] | None = None  # property names to show in popups
+    geometry: str = "circle"  # "circle" (points) | "line" (LineString faults/boundaries)
+    weight: float = 1.5  # line width in px (geometry="line")
+    magnitude_field: str = ""  # circle layer: scale radius + colour by this numeric
+    #                            property (e.g. earthquake "mag") instead of a flat dot
 
 
 @dataclass
@@ -246,6 +250,9 @@ def _render_html(
                 "radius": layer.radius,
                 "description_fields": layer.description_fields or [],
                 "feature_count": len(data.get("features") or []),
+                "geometry": layer.geometry,
+                "weight": layer.weight,
+                "magnitude_field": layer.magnitude_field,
             }
             for layer, data in loaded_layers
         ],
@@ -395,6 +402,22 @@ def _render_html(
           return [...lead, ...fields.filter(k => !lead.includes(k))];
         }}
 
+        // Earthquake styling: scale circle radius + colour by magnitude when a
+        // layer declares a magnitude_field; otherwise a flat dot.
+        function magExpr(spec, lo, mid, hi) {{
+          const m = ['coalesce', ['to-number', ['get', spec.magnitude_field]], 0];
+          return ['interpolate', ['linear'], m, 4, lo, 6, mid, 8, hi];
+        }}
+        function radiusExpr(spec) {{
+          return spec.magnitude_field ? magExpr(spec, 3, 9, 22) : normalRadius(spec);
+        }}
+        function colorExpr(spec) {{
+          if (!spec.magnitude_field) return spec.color;
+          const m = ['coalesce', ['to-number', ['get', spec.magnitude_field]], 0];
+          return ['interpolate', ['linear'], m,
+            4, '#fee08b', 5, '#fdae61', 6, '#f46d43', 7, '#d73027', 8, '#a50026'];
+        }}
+
         function normalRadius(spec) {{
           return [
             'case',
@@ -436,18 +459,32 @@ def _render_html(
               continue;
             }}
             map.addSource(spec.id, {{ type: 'geojson', data }});
-            map.addLayer({{
-              id: spec.id,
-              type: 'circle',
-              source: spec.id,
-              paint: {{
-                'circle-radius': normalRadius(spec),
-                'circle-color': spec.color,
-                'circle-stroke-width': 1.5,
-                'circle-stroke-color': '#fff',
-                'circle-opacity': 0.9
-              }}
-            }});
+            if (spec.geometry === 'line') {{
+              map.addLayer({{
+                id: spec.id,
+                type: 'line',
+                source: spec.id,
+                layout: {{ 'line-join': 'round', 'line-cap': 'round' }},
+                paint: {{
+                  'line-color': spec.color,
+                  'line-width': spec.weight || 1.5,
+                  'line-opacity': 0.85
+                }}
+              }});
+            }} else {{
+              map.addLayer({{
+                id: spec.id,
+                type: 'circle',
+                source: spec.id,
+                paint: {{
+                  'circle-radius': radiusExpr(spec),
+                  'circle-color': colorExpr(spec),
+                  'circle-stroke-width': 1,
+                  'circle-stroke-color': '#fff',
+                  'circle-opacity': 0.85
+                }}
+              }});
+            }}
             map.on('click', spec.id, (e) => {{
               const props = e.features[0].properties || {{}};
               const fields = nameFirst(spec.description_fields.length
@@ -458,9 +495,9 @@ def _render_html(
                 .map(k => `<tr><td class="k">${{k}}</td><td>${{String(props[k])
                     .replace(/&/g,'&amp;').replace(/</g,'&lt;')}}</td></tr>`)
                 .join('');
-              const title = props.primary_name || props.SITE_NAME
-                || props.NAME || props.FACILITY_NAME
-                || props.title || props.description || spec.title;
+              const title = props.name || props.primary_name || props.SITE_NAME
+                || props.NAME || props.Name || props.FACILITY_NAME
+                || props.title || props.place || props.description || spec.title;
               new maplibregl.Popup({{ closeButton: true }})
                 .setLngLat(e.lngLat)
                 .setHTML(`<h4>${{title}}</h4><table class="attrs">${{rows}}</table>`)
@@ -472,10 +509,11 @@ def _render_html(
 
           function applyRadius() {{
             for (const spec of LAYER_SPECS) {{
+              if (spec.geometry === 'line') continue;  // no circle-radius on a line layer
               map.setPaintProperty(
                 spec.id,
                 'circle-radius',
-                bigDotsOn ? bigRadius(spec) : normalRadius(spec)
+                bigDotsOn ? bigRadius(spec) : radiusExpr(spec)
               );
             }}
           }}
@@ -526,9 +564,17 @@ def _render_html(
             const data = LAYER_DATA[spec.id]; if (!data) continue;
             for (const f of data.features) {{
               const p = f.properties || {{}};
-              const nm = p.name || p.primary_name || p.NAME || p.FACILITY_NAME || '';
-              if (nm) sidx.push({{ name: nm, sub: p.amenity || p['addr:city'] || p.operator || '',
-                                   coords: f.geometry.coordinates, props: p, spec }});
+              const nm = p.name || p.primary_name || p.NAME || p.Name
+                || p.FACILITY_NAME || p.title || p.place || '';
+              // Lines (faults) have no single coordinate — anchor the popup at the
+              // geometry's first vertex so search still flies to it.
+              const g = f.geometry || {{}};
+              const c = g.type === 'Point' ? g.coordinates
+                : (g.type === 'LineString' ? g.coordinates[0]
+                : (g.type === 'MultiLineString' ? g.coordinates[0][0] : null));
+              if (nm && c) sidx.push({{ name: nm,
+                sub: p.amenity || p['addr:city'] || p.operator || p.mag || '',
+                coords: c, props: p, spec }});
             }}
           }}
           function popupFor(o) {{

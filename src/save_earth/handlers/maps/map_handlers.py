@@ -13,6 +13,7 @@ from ..shared.save_earth_utils import (
     map_render,
     nuclear,
     openlittermap,
+    seismic,
     volcanoes,
 )
 from ..shared.save_earth_utils import (
@@ -109,6 +110,32 @@ _LGBTQ_LAYER = map_render.LayerSpec(
     description_fields=None,
 )
 
+# Tectonic plate boundaries (fault lines) — LineString geometry, drawn as
+# lines. description_fields=None → click a boundary to see its raw properties.
+_FAULTS_LAYER = map_render.LayerSpec(
+    name="faults",
+    title="Fault lines / plate boundaries (Bird 2002)",
+    source_cache_type=seismic.FAULTS_CACHE_TYPE,
+    source_relative_path=seismic.FAULTS_RELATIVE_PATH,
+    color="#ff7043",
+    geometry="line",
+    weight=1.6,
+    description_fields=None,
+)
+
+# Recent earthquakes (USGS feed). magnitude_field="mag" → circles sized + coloured
+# by magnitude. description_fields=None → popup shows every USGS property.
+_EARTHQUAKE_LAYER = map_render.LayerSpec(
+    name="earthquakes",
+    title="Recent earthquakes M4.5+ (USGS, past 30 days)",
+    source_cache_type=seismic.EARTHQUAKES_CACHE_TYPE,
+    source_relative_path=seismic.EARTHQUAKES_RELATIVE_PATH,
+    color="#d73027",
+    radius=6,
+    magnitude_field="mag",
+    description_fields=None,
+)
+
 _OLM_DESCRIPTION_FIELDS = [
     "point_count",
     "point_count_abbreviated",
@@ -171,7 +198,11 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     step_log = params.get("_step_log")
 
     storage = get_storage()
-    candidates = [_NUCLEAR_LAYER, _VOLCANO_LAYER, _LGBTQ_LAYER] + _EPA_LAYERS + _openlittermap_layers(storage)
+    # Faults (lines) before earthquakes (points) so quakes draw on top.
+    candidates = (
+        [_NUCLEAR_LAYER, _VOLCANO_LAYER, _LGBTQ_LAYER, _FAULTS_LAYER, _EARTHQUAKE_LAYER]
+        + _EPA_LAYERS + _openlittermap_layers(storage)
+    )
     if only:
         candidates = [layer for layer in candidates if layer.name in only]
     present: list[map_render.LayerSpec] = []

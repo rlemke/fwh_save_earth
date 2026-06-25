@@ -17,6 +17,7 @@ from ..shared.save_earth_utils import (
     nuclear,
     openlittermap,
     parse_bbox,
+    seismic,
     tri,
     volcanoes,
 )
@@ -175,6 +176,40 @@ def handle_download_lgbtq_venues(params: dict[str, Any]) -> dict[str, Any]:
     return {"cache_type": lgbtq.CACHE_TYPE, **_result_payload(res)}
 
 
+def handle_download_earthquakes(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadEarthquakes — recent significant quakes from the USGS feed."""
+    force = bool(params.get("force", False))
+    use_mock = bool(params.get("use_mock", False))
+    step_log = params.get("_step_log")
+
+    _step_log(step_log, f"DownloadEarthquakes force={force} use_mock={use_mock}")
+    res = seismic.download_earthquakes(force=force, use_mock=use_mock)
+    status = "cache" if res.was_cached else ("mock" if res.used_mock else "download")
+    _step_log(
+        step_log,
+        f"[{status}] earthquakes/{res.relative_path}  {res.feature_count:,} quakes",
+        "success",
+    )
+    return {"cache_type": seismic.EARTHQUAKES_CACHE_TYPE, **_result_payload(res)}
+
+
+def handle_download_faults(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadFaults — tectonic plate boundaries (Bird 2002 PB2002)."""
+    force = bool(params.get("force", False))
+    use_mock = bool(params.get("use_mock", False))
+    step_log = params.get("_step_log")
+
+    _step_log(step_log, f"DownloadFaults force={force} use_mock={use_mock}")
+    res = seismic.download_faults(force=force, use_mock=use_mock)
+    status = "cache" if res.was_cached else ("mock" if res.used_mock else "download")
+    _step_log(
+        step_log,
+        f"[{status}] faults/{res.relative_path}  {res.feature_count:,} boundary lines",
+        "success",
+    )
+    return {"cache_type": seismic.FAULTS_CACHE_TYPE, **_result_payload(res)}
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -186,6 +221,8 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadNuclearReactors": handle_download_nuclear_reactors,
     f"{NAMESPACE}.DownloadVolcanoes": handle_download_volcanoes,
     f"{NAMESPACE}.DownloadLgbtqVenues": handle_download_lgbtq_venues,
+    f"{NAMESPACE}.DownloadEarthquakes": handle_download_earthquakes,
+    f"{NAMESPACE}.DownloadFaults": handle_download_faults,
 }
 
 
