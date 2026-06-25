@@ -18,6 +18,7 @@ from ..shared.save_earth_utils import (
     openlittermap,
     parse_bbox,
     seismic,
+    tesla,
     tri,
     volcanoes,
 )
@@ -176,6 +177,23 @@ def handle_download_lgbtq_venues(params: dict[str, Any]) -> dict[str, Any]:
     return {"cache_type": lgbtq.CACHE_TYPE, **_result_payload(res)}
 
 
+def handle_download_tesla_chargers(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadTeslaChargers — worldwide Tesla charging stations from OSM."""
+    force = bool(params.get("force", False))
+    use_mock = bool(params.get("use_mock", False))
+    step_log = params.get("_step_log")
+
+    _step_log(step_log, f"DownloadTeslaChargers force={force} use_mock={use_mock}")
+    res = tesla.download(force=force, use_mock=use_mock)
+    status = "cache" if res.was_cached else ("mock" if res.used_mock else "download")
+    _step_log(
+        step_log,
+        f"[{status}] tesla/{res.relative_path}  {res.feature_count:,} chargers",
+        "success",
+    )
+    return {"cache_type": tesla.CACHE_TYPE, **_result_payload(res)}
+
+
 def handle_download_earthquakes(params: dict[str, Any]) -> dict[str, Any]:
     """Handle DownloadEarthquakes — recent significant quakes from the USGS feed."""
     force = bool(params.get("force", False))
@@ -221,6 +239,7 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadNuclearReactors": handle_download_nuclear_reactors,
     f"{NAMESPACE}.DownloadVolcanoes": handle_download_volcanoes,
     f"{NAMESPACE}.DownloadLgbtqVenues": handle_download_lgbtq_venues,
+    f"{NAMESPACE}.DownloadTeslaChargers": handle_download_tesla_chargers,
     f"{NAMESPACE}.DownloadEarthquakes": handle_download_earthquakes,
     f"{NAMESPACE}.DownloadFaults": handle_download_faults,
 }

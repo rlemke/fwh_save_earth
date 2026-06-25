@@ -88,3 +88,16 @@ def test_build_seismic_map_renders_both_layers(local_storage):
     assert "type: 'line'" in html
     assert "colorExpr(spec)" in html and "radiusExpr(spec)" in html
     assert "magnitude_field" in html
+
+
+def test_tesla_mock_download_and_layer(local_storage):
+    from save_earth.handlers.shared.save_earth_utils import tesla
+    from save_earth.handlers.maps import map_handlers as mh
+
+    res = tesla.download(use_mock=True)
+    assert res.feature_count == 3 and res.used_mock
+    assert res.relative_path == tesla.RELATIVE_PATH
+    # the tesla layer is in the map candidates
+    assert any(getattr(L, "name", "") == "tesla" for L in
+               [mh._TESLA_LAYER])
+    assert mh._TESLA_LAYER.source_cache_type == "tesla"

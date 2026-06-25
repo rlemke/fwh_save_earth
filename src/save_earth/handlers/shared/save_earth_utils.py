@@ -34,6 +34,7 @@ from _save_earth_tools import (  # noqa: E402,F401
     openlittermap,
     seismic,
     sidecar,
+    tesla,
     tri,
     volcanoes,
 )
@@ -67,6 +68,7 @@ __all__ = [
     "parse_bbox",
     "seismic",
     "sidecar",
+    "tesla",
     "tri",
     "volcanoes",
     "lgbtq",
