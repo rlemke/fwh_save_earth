@@ -387,6 +387,14 @@ def _render_html(
 
         // Normal paint: radius stays at spec.radius; clusters with
         // point_count auto-scale a little so dense areas read bigger.
+        // Order property keys so a name-like field is listed first in popups.
+        function nameFirst(fields) {{
+          const NK = ['name','primary_name','official_name','NAME','SITE_NAME',
+                      'FACILITY_NAME','title'];
+          const lead = NK.filter(k => fields.includes(k));
+          return [...lead, ...fields.filter(k => !lead.includes(k))];
+        }}
+
         function normalRadius(spec) {{
           return [
             'case',
@@ -442,9 +450,9 @@ def _render_html(
             }});
             map.on('click', spec.id, (e) => {{
               const props = e.features[0].properties || {{}};
-              const fields = spec.description_fields.length
+              const fields = nameFirst(spec.description_fields.length
                 ? spec.description_fields
-                : Object.keys(props);
+                : Object.keys(props));
               const rows = fields
                 .filter(k => props[k] !== undefined && props[k] !== null && props[k] !== '')
                 .map(k => `<tr><td class="k">${{k}}</td><td>${{String(props[k])
@@ -524,7 +532,7 @@ def _render_html(
             }}
           }}
           function popupFor(o) {{
-            const fields = o.spec.description_fields.length ? o.spec.description_fields : Object.keys(o.props);
+            const fields = nameFirst(o.spec.description_fields.length ? o.spec.description_fields : Object.keys(o.props));
             const rows = fields
               .filter(k => o.props[k] !== undefined && o.props[k] !== null && o.props[k] !== '')
               .map(k => `<tr><td class="k">${{k}}</td><td>${{String(o.props[k])
