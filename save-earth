@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Domain CLI dispatcher — a tiny `fw`-style front door for ONE fwh_* domain.
+#
+# Auto-discovers this package's terminal tools (src/<pkg>/tools/*.sh) and its FFL
+# workflows, and dispatches to a tool by name. The filesystem is the registry —
+# drop a new `tools/<name>.sh` in and it shows up here automatically.
+#
+#   ./<this> help            # or no args / --help : the menu of common operations
+#   ./<this> <command> ...   # run tools/<command>.sh with the given args
+#
+# Identical across every fwh_* repo; only the filename differs (osm, save-earth,
+# census, …). Tools run in the terminal; workflows run on the runtime via `fw`.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SELF="$(basename "${BASH_SOURCE[0]}")"
+PKG="$(ls "$ROOT/src" 2>/dev/null | grep -v '\.egg-info$' | head -1)"
+PKGDIR="$ROOT/src/$PKG"
+TOOLS="$PKGDIR/tools"
+
+# First line of a Python module docstring (for the per-tool summary).
+_py_summary() {
+  awk '
+    /"""/ {
+      l=$0; sub(/.*"""/, "", l);
+      gsub(/[[:space:]]+$/, "", l);
+      if (l ~ /[^[:space:]]/) { print l; exit }
+      if ((getline nl) > 0) { gsub(/[[:space:]]*"""/, "", nl); print nl; exit }
+    }' "$1" 2>/dev/null | head -1
+}
+
+_list_tools() {
+  [ -d "$TOOLS" ] || return 0
+  for sh in "$TOOLS"/*.sh; do
+    [ -e "$sh" ] || continue
+    name="$(basename "$sh" .sh)"; case "$name" in _*) continue;; esac
+    py="$TOOLS/$(echo "$name" | tr '-' '_').py"
+    sum=""
+    [ -f "$py" ] && sum="$(_py_summary "$py")"
+    printf '  %-28s %s\n' "$name" "$sum"
+  done
+}
+
+_list_workflows() {
+  # ns.Workflow  →  the fw ffl run line. Capped so big domains (osm) stay readable.
+  local n=0
+  while IFS=$'\t' read -r wf ffl; do
+    [ -n "$wf" ] || continue
+    n=$((n + 1))
+    if [ "$n" -le 18 ]; then
+      tl="${wf%%.*}"
+      rel="${ffl#"$ROOT"/}"
+      printf '  %s\n      fw ffl run --primary %s --workflow %s --task-list %s\n' "$wf" "$rel" "$wf" "$tl"
+    fi
+  done < <(
+    find "$PKGDIR" -name '*.ffl' 2>/dev/null | sort | while read -r f; do
+      awk '
+        /^[[:space:]]*namespace[[:space:]]+/ { ns=$2 }
+        /^[[:space:]]*workflow[[:space:]]+/  { name=$2; sub(/\(.*/, "", name); print ns "." name "\t" FILENAME }
+      ' "$f"
+    done
+  )
+  [ "$n" -gt 18 ] && printf '  ... and %d more (see %s/**/*.ffl)\n' "$((n - 18))" "src/$PKG"
+}
+
+_help() {
+  echo "$SELF — the '$PKG' Facetwork domain CLI"
+  echo
+  echo "USAGE"
+  echo "  ./$SELF <command> [args...]    run a terminal tool (see the list below)"
+  echo "  ./$SELF help                   show this menu"
+  echo
+  if [ -d "$TOOLS" ]; then
+    echo "TOOLS (terminal CLIs — operate the local/MinIO cache directly)"
+    _list_tools
+    echo
+  else
+    echo "(this domain ships no terminal tools — its operations are FFL workflows)"
+    echo
+  fi
+  echo "WORKFLOWS (run on the Facetwork runtime; dashboard-visible)"
+  _list_workflows
+  echo
+  echo "Storage: prefix tool runs with AFL_STORAGE=s3 AFL_DATA_ROOT=s3://afl-cache"
+  echo "  AFL_S3_ENDPOINT=http://afl-minio:9000 (… ACCESS_KEY/SECRET_KEY) to use the fleet cache."
+}
+
+cmd="${1:-help}"
+case "$cmd" in
+  help | -h | --help | "") _help ;;
+  *)
+    tool="$TOOLS/$cmd.sh"
+    [ -f "$tool" ] || tool="$TOOLS/$(echo "$cmd" | tr '_' '-').sh"
+    if [ -f "$tool" ]; then
+      shift
+      exec "$tool" "$@"
+    fi
+    echo "$SELF: unknown command '$cmd'" >&2
+    echo "Run './$SELF help' for the list of tools + workflows." >&2
+    exit 2
+    ;;
+esac
