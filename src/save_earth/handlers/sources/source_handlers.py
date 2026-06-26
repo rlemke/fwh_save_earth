@@ -18,6 +18,7 @@ from ..shared.save_earth_utils import (
     openlittermap,
     parse_bbox,
     seismic,
+    telescope,
     tesla,
     tri,
     volcanoes,
@@ -177,6 +178,23 @@ def handle_download_lgbtq_venues(params: dict[str, Any]) -> dict[str, Any]:
     return {"cache_type": lgbtq.CACHE_TYPE, **_result_payload(res)}
 
 
+def handle_download_telescopes(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadTelescopes — worldwide named research telescopes from OSM."""
+    force = bool(params.get("force", False))
+    use_mock = bool(params.get("use_mock", False))
+    step_log = params.get("_step_log")
+
+    _step_log(step_log, f"DownloadTelescopes force={force} use_mock={use_mock}")
+    res = telescope.download(force=force, use_mock=use_mock)
+    status = "cache" if res.was_cached else ("mock" if res.used_mock else "download")
+    _step_log(
+        step_log,
+        f"[{status}] telescopes/{res.relative_path}  {res.feature_count:,} telescopes",
+        "success",
+    )
+    return {"cache_type": telescope.CACHE_TYPE, **_result_payload(res)}
+
+
 def handle_download_tesla_chargers(params: dict[str, Any]) -> dict[str, Any]:
     """Handle DownloadTeslaChargers — worldwide Tesla charging stations from OSM."""
     force = bool(params.get("force", False))
@@ -240,6 +258,7 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadVolcanoes": handle_download_volcanoes,
     f"{NAMESPACE}.DownloadLgbtqVenues": handle_download_lgbtq_venues,
     f"{NAMESPACE}.DownloadTeslaChargers": handle_download_tesla_chargers,
+    f"{NAMESPACE}.DownloadTelescopes": handle_download_telescopes,
     f"{NAMESPACE}.DownloadEarthquakes": handle_download_earthquakes,
     f"{NAMESPACE}.DownloadFaults": handle_download_faults,
 }

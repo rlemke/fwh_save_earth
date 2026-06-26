@@ -101,3 +101,13 @@ def test_tesla_mock_download_and_layer(local_storage):
     assert any(getattr(L, "name", "") == "tesla" for L in
                [mh._TESLA_LAYER])
     assert mh._TESLA_LAYER.source_cache_type == "tesla"
+
+
+def test_telescope_mock_download_and_layer(local_storage):
+    from save_earth.handlers.shared.save_earth_utils import telescope
+    from save_earth.handlers.maps import map_handlers as mh
+
+    res = telescope.download(use_mock=True)
+    assert res.feature_count == 4 and res.used_mock
+    assert res.relative_path == telescope.RELATIVE_PATH
+    assert mh._TELESCOPE_LAYER.source_cache_type == "telescopes"

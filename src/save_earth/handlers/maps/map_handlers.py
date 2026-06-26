@@ -14,6 +14,7 @@ from ..shared.save_earth_utils import (
     nuclear,
     openlittermap,
     seismic,
+    telescope,
     tesla,
     volcanoes,
 )
@@ -123,6 +124,18 @@ _TESLA_LAYER = map_render.LayerSpec(
     description_fields=None,
 )
 
+# Research telescopes (OSM). description_fields=None -> popup shows every OSM tag
+# (telescope:type, telescope:diameter, operator, start_date, wikipedia, ...).
+_TELESCOPE_LAYER = map_render.LayerSpec(
+    name="telescopes",
+    title="Research telescopes (OSM)",
+    source_cache_type=telescope.CACHE_TYPE,
+    source_relative_path=telescope.RELATIVE_PATH,
+    color="#3949ab",
+    radius=6,
+    description_fields=None,
+)
+
 # Tectonic plate boundaries (fault lines) — LineString geometry, drawn as
 # lines. description_fields=None → click a boundary to see its raw properties.
 _FAULTS_LAYER = map_render.LayerSpec(
@@ -213,7 +226,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     storage = get_storage()
     # Faults (lines) before earthquakes (points) so quakes draw on top.
     candidates = (
-        [_NUCLEAR_LAYER, _VOLCANO_LAYER, _LGBTQ_LAYER, _TESLA_LAYER, _FAULTS_LAYER, _EARTHQUAKE_LAYER]
+        [_NUCLEAR_LAYER, _VOLCANO_LAYER, _LGBTQ_LAYER, _TESLA_LAYER, _TELESCOPE_LAYER, _FAULTS_LAYER, _EARTHQUAKE_LAYER]
         + _EPA_LAYERS + _openlittermap_layers(storage)
     )
     if only:

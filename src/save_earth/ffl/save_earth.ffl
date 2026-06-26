@@ -211,6 +211,24 @@ namespace save_earth.sources {
         used_mock: Boolean
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
+    /** Download worldwide named research telescopes from OpenStreetMap.
+      *
+      * Queries Overpass for named man_made=telescope (optical + radio). Every OSM
+      * tag is kept verbatim; feature_kind = the telescope:type (else "telescope"). */
+    event facet DownloadTelescopes(
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
     /** Download worldwide Tesla charging stations from OpenStreetMap.
       *
       * Queries Overpass for amenity=charging_station branded / networked /
@@ -621,6 +639,55 @@ namespace save_earth.workflows {
             status = "completed",
             html_path = map.html_path,
             detail = "tesla map with " ++ chargers.feature_count ++ " charger(s)"
+        )
+    }
+
+    /** Build an interactive world map of named research telescopes.
+      *
+      * Downloads the OSM telescope dataset, then renders the MapLibre map with
+      * only the telescopes layer. No curated field list, so clicking a telescope
+      * opens a popup table showing every OSM attribute (telescope:type,
+      * telescope:diameter, operator, start_date, wikipedia, ...). */
+    workflow BuildTelescopeMap(
+        center_lat: Double = 25.0,
+        center_lon: Double = 0.0,
+        zoom: Double = 1.6,
+        use_mock: Boolean = false
+    ) => (
+        status: String,
+        html_path: String,
+        detail: String
+    ) andThen {
+        scopes = DownloadTelescopes(
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildTelescopeMap(
+                status = "failed",
+                html_path = "",
+                detail = "telescope download failed"
+            )
+        }
+        map = BuildMap(
+            region = "telescopes",
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            dependency_signal = scopes.feature_count,
+            only_layers = "telescopes",
+            attribution_workflow = "save_earth.workflows.BuildTelescopeMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "Named research telescopes worldwide (optical + radio), from OpenStreetMap. Click any telescope for its full details (type, diameter, operator, ...)."
+        ) catch {
+            yield BuildTelescopeMap(
+                status = "failed",
+                html_path = "",
+                detail = "map build failed"
+            )
+        }
+        yield BuildTelescopeMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = "telescope map with " ++ scopes.feature_count ++ " telescope(s)"
         )
     }
 
