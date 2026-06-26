@@ -35,6 +35,9 @@ def test_classification_basic():
         "Little Havana": "cuban",
         "Thaitown": "thai",
         "Little Portugal": "portuguese",
+        "Corktown": "irish",
+        "Little Ireland": "irish",
+        "Jewish Quarter": "jewish",
     }
     for name, slug in cases.items():
         h = enclaves._classify(name)
@@ -47,10 +50,12 @@ def test_korean_word_boundary_regression():
     from save_earth.handlers.shared.save_earth_utils import enclaves
 
     for false_positive in [
-        "Yorktown", "Blacktown", "Cooktown", "Bucktown", "Corktown",
+        "Yorktown", "Blacktown", "Cooktown", "Bucktown",
         "Bricktown", "Parktown", "Darktown", "Birmingham at Yorktown",
     ]:
         assert enclaves._classify(false_positive) is None, f"{false_positive!r} wrongly classified"
+    # "Corktown" is genuinely Irish (Detroit/Toronto) — it MUST classify, not be dropped.
+    assert enclaves._classify("Corktown").slug == "irish"
 
 
 def test_no_unrelated_name_matches():
