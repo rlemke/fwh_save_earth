@@ -85,7 +85,9 @@ _list_workflows() {
       ' "$f"
     done
   )
-  [ "$n" -gt 18 ] && printf '  ... and %d more (see %s/**/*.ffl)\n' "$((n - 18))" "src/$PKG"
+  if [ "$n" -gt 18 ]; then
+    printf '  ... and %d more (see %s/**/*.ffl)\n' "$((n - 18))" "src/$PKG"
+  fi
 }
 
 _help() {
