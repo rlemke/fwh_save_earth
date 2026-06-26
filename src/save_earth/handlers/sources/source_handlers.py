@@ -12,6 +12,7 @@ import os
 from typing import Any
 
 from ..shared.save_earth_utils import (
+    enclaves,
     epa_cleanups,
     lgbtq,
     nuclear,
@@ -144,6 +145,35 @@ def handle_download_nuclear_reactors(params: dict[str, Any]) -> dict[str, Any]:
     return {"cache_type": nuclear.CACHE_TYPE, **_result_payload(res)}
 
 
+def handle_download_ethnic_enclaves(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadEthnicEnclaves — heritage-named enclave neighbourhoods from OSM.
+
+    Writes one GeoJSON per heritage (chinese/japanese/italian/…); returns the
+    total feature count + heritage count so the map build can sequence after it.
+    """
+    force = bool(params.get("force", False))
+    use_mock = bool(params.get("use_mock", False))
+    step_log = params.get("_step_log")
+
+    _step_log(step_log, f"DownloadEthnicEnclaves force={force} use_mock={use_mock}")
+    res = enclaves.download(force=force, use_mock=use_mock)
+    status = "cache" if res.was_cached else ("mock" if res.used_mock else "download")
+    top = ", ".join(f"{k}={v}" for k, v in sorted(res.per_heritage.items(), key=lambda x: -x[1])[:5])
+    _step_log(
+        step_log,
+        f"[{status}] enclaves  {res.feature_count:,} places across {res.heritage_count} heritages ({top})",
+        "success",
+    )
+    return {
+        "cache_type": enclaves.CACHE_TYPE,
+        "feature_count": res.feature_count,
+        "heritage_count": res.heritage_count,
+        "source_url": res.source_url,
+        "was_cached": res.was_cached,
+        "used_mock": res.used_mock,
+    }
+
+
 def handle_download_volcanoes(params: dict[str, Any]) -> dict[str, Any]:
     """Handle DownloadVolcanoes — worldwide major (notable) volcanoes from OSM."""
     force = bool(params.get("force", False))
@@ -255,6 +285,7 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadEpaCleanups": handle_download_epa_cleanups,
     f"{NAMESPACE}.DownloadTri": handle_download_tri,
     f"{NAMESPACE}.DownloadNuclearReactors": handle_download_nuclear_reactors,
+    f"{NAMESPACE}.DownloadEthnicEnclaves": handle_download_ethnic_enclaves,
     f"{NAMESPACE}.DownloadVolcanoes": handle_download_volcanoes,
     f"{NAMESPACE}.DownloadLgbtqVenues": handle_download_lgbtq_venues,
     f"{NAMESPACE}.DownloadTeslaChargers": handle_download_tesla_chargers,

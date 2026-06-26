@@ -27,6 +27,7 @@ if str(_TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(_TOOLS_ROOT))
 
 from _save_earth_tools import (  # noqa: E402,F401
+    enclaves,
     epa_cleanups,
     lgbtq,
     map_render,
@@ -62,6 +63,7 @@ def parse_bbox(s: str) -> tuple[float, float, float, float] | None:
 __all__ = [
     "LocalStorage",
     "get_storage",
+    "enclaves",
     "epa_cleanups",
     "map_render",
     "nuclear",

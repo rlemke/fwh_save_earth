@@ -8,6 +8,7 @@ import os
 from typing import Any
 
 from ..shared.save_earth_utils import (
+    enclaves,
     get_storage,
     lgbtq,
     map_render,
@@ -203,6 +204,31 @@ def _openlittermap_layers(storage) -> list[map_render.LayerSpec]:
     return layers
 
 
+def _enclave_layers(storage) -> list[map_render.LayerSpec]:
+    """One coloured layer per heritage (chinese, japanese, italian, …).
+
+    Built from the fixed ``enclaves.HERITAGES`` constant — NOT a directory
+    listing — so it works identically on local disk and the s3/MinIO object
+    store (``storage.exists`` is the presence test; a heritage with no cached
+    GeoJSON is simply dropped). Layer ids are ``enclave-<slug>`` so the workflow
+    selects them all with ``only_layers="enclave-*"``. description_fields=None →
+    the popup shows every OSM tag (name first), plus the derived ``heritage`` /
+    ``osm_url`` fields."""
+    layers: list[map_render.LayerSpec] = []
+    for h in enclaves.HERITAGES:
+        layers.append(
+            map_render.LayerSpec(
+                name=f"enclave-{h.slug}",
+                title=h.label,
+                source_cache_type=enclaves.CACHE_TYPE,
+                source_relative_path=f"{h.slug}.geojson",
+                color=h.color,
+                radius=6,
+            )
+        )
+    return layers
+
+
 def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     """Handle BuildMap — auto-discover every cached layer and render HTML."""
     region = params.get("region", "global") or "global"
@@ -227,10 +253,17 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     # Faults (lines) before earthquakes (points) so quakes draw on top.
     candidates = (
         [_NUCLEAR_LAYER, _VOLCANO_LAYER, _LGBTQ_LAYER, _TESLA_LAYER, _TELESCOPE_LAYER, _FAULTS_LAYER, _EARTHQUAKE_LAYER]
-        + _EPA_LAYERS + _openlittermap_layers(storage)
+        + _EPA_LAYERS + _openlittermap_layers(storage) + _enclave_layers(storage)
     )
     if only:
-        candidates = [layer for layer in candidates if layer.name in only]
+        # Exact name match, plus a trailing-"*" prefix wildcard so a workflow can
+        # select a whole family of layers (e.g. only_layers="enclave-*").
+        prefixes = tuple(o[:-1] for o in only if o.endswith("*"))
+        exact = {o for o in only if not o.endswith("*")}
+        candidates = [
+            layer for layer in candidates
+            if layer.name in exact or layer.name.startswith(prefixes)
+        ]
     present: list[map_render.LayerSpec] = []
     for layer in candidates:
         geojson_path = sidecar_lib.cache_path(

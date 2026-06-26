@@ -167,6 +167,30 @@ namespace save_earth.sources {
         used_mock: Boolean
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
+    /** Download worldwide heritage-named enclave neighbourhoods from OSM.
+      *
+      * Queries the Overpass API for named places (place=neighbourhood /
+      * quarter / suburb / city_block / locality) whose NAME marks a heritage
+      * enclave — Chinatown, Japantown, Little Italy, Koreatown, Little Saigon,
+      * Greektown, Little Havana, … OSM has no structured ethnicity attribute
+      * (demographics aren't on-the-ground verifiable), so the name is the
+      * signal; each match is classified into a heritage bucket and written to
+      * one GeoJSON per heritage (chinese.geojson, italian.geojson, …) so the
+      * map renders one coloured, toggleable layer per heritage. Every OSM tag
+      * is kept verbatim for the popup; many carry a wikidata/wikipedia link.
+      * Coverage is community-driven and uneven (rich in US/European metros). */
+    event facet DownloadEthnicEnclaves(
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        feature_count: Int,
+        heritage_count: Int,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
     /** Download worldwide major (notable) volcanoes from OSM.
       *
       * Queries the OpenStreetMap Overpass API for every feature tagged
@@ -491,6 +515,57 @@ namespace save_earth.workflows {
             status = "completed",
             html_path = map.html_path,
             detail = "nuclear map with " ++ reactors.feature_count ++ " reactor/plant feature(s)"
+        )
+    }
+
+    /** Build an interactive world map of heritage-named enclave neighbourhoods.
+      *
+      * Downloads the OSM enclave dataset (places named Chinatown / Japantown /
+      * Little Italy / Koreatown / Little Saigon / Greektown / ...), classified
+      * into one GeoJSON per heritage, then renders the MapLibre map with every
+      * enclave layer (only_layers="enclave-*") — each heritage its own coloured,
+      * toggleable layer with a legend count. No curated field list, so clicking
+      * any enclave shows every OSM tag (name first) plus any wikidata link. */
+    workflow BuildEnclaveMap(
+        center_lat: Double = 25.0,
+        center_lon: Double = 0.0,
+        zoom: Double = 1.6,
+        use_mock: Boolean = false
+    ) => (
+        status: String,
+        html_path: String,
+        detail: String
+    ) andThen {
+        enclaves = DownloadEthnicEnclaves(
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildEnclaveMap(
+                status = "failed",
+                html_path = "",
+                detail = "enclave download failed"
+            )
+        }
+        map = BuildMap(
+            region = "enclaves",
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            dependency_signal = enclaves.feature_count,
+            only_layers = "enclave-*",
+            attribution_workflow = "save_earth.workflows.BuildEnclaveMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "Heritage-named enclave neighbourhoods worldwide, from OpenStreetMap (Chinatown, Japantown, Little Italy, Koreatown, ...). Each heritage is a separate coloured layer - toggle them in the legend. OSM has no ethnicity attribute; the neighbourhood name is the signal. Click any point for all its OSM tags plus any wikidata link."
+        ) catch {
+            yield BuildEnclaveMap(
+                status = "failed",
+                html_path = "",
+                detail = "map build failed"
+            )
+        }
+        yield BuildEnclaveMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = "enclave map with " ++ enclaves.feature_count ++ " place(s) across " ++ enclaves.heritage_count ++ " heritage(s)"
         )
     }
 
