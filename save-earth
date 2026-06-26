@@ -18,15 +18,43 @@ PKG="$(ls "$ROOT/src" 2>/dev/null | grep -v '\.egg-info$' | head -1)"
 PKGDIR="$ROOT/src/$PKG"
 TOOLS="$PKGDIR/tools"
 
-# First line of a Python module docstring (for the per-tool summary).
+# First line of a Python module docstring — handles BOTH single-line
+# ("""text""") and multi-line docstrings, and a leading shebang.
 _py_summary() {
   awk '
-    /"""/ {
-      l=$0; sub(/.*"""/, "", l);
-      gsub(/[[:space:]]+$/, "", l);
-      if (l ~ /[^[:space:]]/) { print l; exit }
-      if ((getline nl) > 0) { gsub(/[[:space:]]*"""/, "", nl); print nl; exit }
+    !found {
+      i = index($0, "\"\"\"")
+      if (i > 0) {
+        rest = substr($0, i + 3)
+        j = index(rest, "\"\"\"")               # closing """ on the same line?
+        if (j > 0) rest = substr(rest, 1, j - 1)
+        gsub(/^[[:space:]]+/, "", rest); gsub(/[[:space:]]+$/, "", rest)
+        if (rest ~ /[^[:space:]]/) { print rest; exit }
+        found = 1; next                          # text is on the following line
+      }
+      next
+    }
+    found {
+      l = $0; sub(/"""/, "", l)
+      gsub(/^[[:space:]]+/, "", l); gsub(/[[:space:]]+$/, "", l)
+      print l; exit
     }' "$1" 2>/dev/null | head -1
+}
+
+# Summary for one tool: (1) paired .py docstring, (2) for an all-* batch wrapper,
+# the base tool's docstring prefixed "All cached regions:", (3) an explicit
+# "# summary:" header line in the .sh itself.
+_tool_summary() {
+  local name="$1" py base bpy sum=""
+  py="$TOOLS/$(echo "$name" | tr '-' '_').py"
+  [ -f "$py" ] && sum="$(_py_summary "$py")"
+  if [ -z "$sum" ] && [ "${name#all-}" != "$name" ]; then
+    base="${name#all-}"
+    bpy="$TOOLS/$(echo "$base" | tr '-' '_').py"
+    [ -f "$bpy" ] && sum="All cached regions: $(_py_summary "$bpy")"
+  fi
+  [ -z "$sum" ] && sum="$(sed -n 's/^#[[:space:]]*summary:[[:space:]]*//p' "$TOOLS/$name.sh" 2>/dev/null | head -1)"
+  echo "$sum"
 }
 
 _list_tools() {
@@ -34,10 +62,7 @@ _list_tools() {
   for sh in "$TOOLS"/*.sh; do
     [ -e "$sh" ] || continue
     name="$(basename "$sh" .sh)"; case "$name" in _*) continue;; esac
-    py="$TOOLS/$(echo "$name" | tr '-' '_').py"
-    sum=""
-    [ -f "$py" ] && sum="$(_py_summary "$py")"
-    printf '  %-28s %s\n' "$name" "$sum"
+    printf '  %-28s %s\n' "$name" "$(_tool_summary "$name")"
   done
 }
 

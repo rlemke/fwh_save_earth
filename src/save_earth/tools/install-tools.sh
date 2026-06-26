@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# summary: Install the Python dependencies the save-earth tools need.
 # Install Python dependencies required by the save-earth tool set.
 #
 # Currently: just ``requests`` for HTTP fetching from the upstream
