@@ -527,9 +527,9 @@ namespace save_earth.workflows {
       * toggleable layer with a legend count. No curated field list, so clicking
       * any enclave shows every OSM tag (name first) plus any wikidata link. */
     workflow BuildEnclaveMap(
-        center_lat: Double = 25.0,
-        center_lon: Double = 0.0,
-        zoom: Double = 1.6,
+        center_lat: Double = 42.0,
+        center_lon: Double = -35.0,
+        zoom: Double = 2.2,
         use_mock: Boolean = false
     ) => (
         status: String,
