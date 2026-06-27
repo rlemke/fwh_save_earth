@@ -16,6 +16,7 @@ from ..shared.save_earth_utils import (
     nuclear,
     openlittermap,
     seismic,
+    siting,
     telescope,
     tesla,
     volcanoes,
@@ -263,6 +264,31 @@ def _power_layers(storage) -> list[map_render.LayerSpec]:
     return layers
 
 
+def _siting_layers(storage) -> list[map_render.LayerSpec]:
+    """Renewable-siting layers: solar & wind plants coloured by the local
+    resource (``siting_score``, 4..8) so the renderer's magnitude ramp shows how
+    well each plant is sited. Layer ids are ``siting-<slug>`` (selected with
+    ``only_layers="siting-*"``). description_fields=None → the popup shows the
+    full WRI record plus the sampled resource value."""
+    layers: list[map_render.LayerSpec] = []
+    for slug, rel, _param, _prop, _dom in siting.RESOURCES:
+        label = "Solar" if slug == "solar" else "Wind"
+        color = "#f9a825" if slug == "solar" else "#2e7d32"
+        layers.append(
+            map_render.LayerSpec(
+                name=f"siting-{slug}",
+                title=f"{label} plants by local resource (NASA POWER)",
+                source_cache_type=siting.CACHE_TYPE,
+                source_relative_path=rel,
+                color=color,
+                radius=4,
+                magnitude_field="siting_score",
+                description_fields=None,
+            )
+        )
+    return layers
+
+
 def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     """Handle BuildMap — auto-discover every cached layer and render HTML."""
     region = params.get("region", "global") or "global"
@@ -287,7 +313,8 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     # Faults (lines) before earthquakes (points) so quakes draw on top.
     candidates = (
         [_NUCLEAR_LAYER, _VOLCANO_LAYER, _LGBTQ_LAYER, _TESLA_LAYER, _TELESCOPE_LAYER, _FAULTS_LAYER, _EARTHQUAKE_LAYER]
-        + _EPA_LAYERS + _openlittermap_layers(storage) + _enclave_layers(storage) + _power_layers(storage)
+        + _EPA_LAYERS + _openlittermap_layers(storage) + _enclave_layers(storage)
+        + _power_layers(storage) + _siting_layers(storage)
     )
     if only:
         # Exact name match, plus a trailing-"*" prefix wildcard so a workflow can

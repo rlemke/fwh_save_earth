@@ -20,6 +20,7 @@ from ..shared.save_earth_utils import (
     openlittermap,
     parse_bbox,
     seismic,
+    siting,
     telescope,
     tesla,
     tri,
@@ -186,6 +187,22 @@ def handle_download_power_plants(params: dict[str, Any]) -> dict[str, Any]:
             "layer_count": len(res.per_layer), "source_url": res.source_url}
 
 
+def handle_annotate_renewable_siting(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle AnnotateRenewableSiting — sample NASA POWER resource at each
+    solar/wind plant and write the siting-scored layers."""
+    step_log = params.get("_step_log")
+    force = bool(params.get("force", False))
+    _step_log(step_log, f"AnnotateRenewableSiting force={force} (NASA POWER climatology)")
+    res = siting.annotate(force=force)
+    per = ", ".join(f"{k}={v}" for k, v in sorted(res.per_layer.items()))
+    _step_log(step_log,
+              f"[siting] {res.feature_count:,} plants, {res.cells_sampled} cells sampled "
+              f"({per}) cached={res.was_cached}", "success")
+    return {"cache_type": siting.CACHE_TYPE, "feature_count": res.feature_count,
+            "cells_sampled": res.cells_sampled, "was_cached": res.was_cached,
+            "source_url": res.source_url}
+
+
 def handle_list_transmission_tiles(params: dict[str, Any]) -> dict[str, Any]:
     """Handle ListTransmissionTiles — emit the tile list (Json) for the fan-out."""
     tiles = power.list_tiles()
@@ -341,6 +358,7 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadNuclearReactors": handle_download_nuclear_reactors,
     f"{NAMESPACE}.DownloadEthnicEnclaves": handle_download_ethnic_enclaves,
     f"{NAMESPACE}.DownloadPowerPlants": handle_download_power_plants,
+    f"{NAMESPACE}.AnnotateRenewableSiting": handle_annotate_renewable_siting,
     f"{NAMESPACE}.DownloadTransmission": handle_download_transmission,
     f"{NAMESPACE}.ListTransmissionTiles": handle_list_transmission_tiles,
     f"{NAMESPACE}.DownloadTransmissionTile": handle_download_transmission_tile,

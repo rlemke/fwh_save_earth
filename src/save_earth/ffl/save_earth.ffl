@@ -204,6 +204,28 @@ namespace save_earth.sources {
         source_url: String
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
+    /** Annotate the cached solar & wind power plants with the local renewable
+      * RESOURCE at each site - answering "is this plant actually where the sun /
+      * wind is good?". Reads the WRI solar/wind layers, samples each plant's
+      * location against NASA POWER's 20-year climatology (GHI for solar, 50 m
+      * wind speed for wind), de-duplicated onto a coarse grid so it is a few
+      * hundred SEQUENTIAL point calls, NOT a fan-out (shared egress IP), and
+      * writes one annotated GeoJSON per source. Each plant carries its raw
+      * resource value plus a ``siting_score`` (4..8) that the renderer maps onto
+      * its yellow->red ramp: dark-red/large = excellent resource (well sited),
+      * yellow/small = poor. Sequence after DownloadPowerPlants by passing its
+      * feature_count as dependency_signal. */
+    event facet AnnotateRenewableSiting(
+        force: Boolean = false,
+        dependency_signal: Int = 0
+    ) => (
+        cache_type: String,
+        feature_count: Int,
+        cells_sampled: Int,
+        was_cached: Boolean,
+        source_url: String
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "expensive") with Timeout(minutes = 30)
+
     /** Download world ≥500 kV transmission lines from OpenStreetMap — BOUNDED +
       * cache-aware. Fetches the tiles one at a time (Overpass rate-limits ~2 per
       * IP and the fleet shares one egress, so a wide fan-out just thrashes) and
@@ -672,6 +694,47 @@ namespace save_earth.workflows {
             status = "completed",
             html_path = map.html_path,
             detail = "power map: " ++ plants.feature_count ++ " plants + " ++ lines.feature_count ++ " transmission lines (cache " ++ lines.was_cached ++ ")"
+        )
+    }
+
+    /** Build the renewable-energy SITING map: solar & wind power plants coloured
+      * by how good the sun / wind resource actually is where each one sits (NASA
+      * POWER 20-year climatology). Larger, darker-red points sit on a better
+      * resource (well sited); smaller, yellow points sit on a poorer one. Two
+      * toggleable layers (solar, wind); click any plant for its full WRI record
+      * plus the sampled resource value. */
+    workflow BuildRenewableSitingMap(
+        force: Boolean = false,
+        center_lat: Double = 25.0,
+        center_lon: Double = 5.0,
+        zoom: Double = 1.6
+    ) => (status: String, html_path: String, detail: String) andThen {
+        plants = DownloadPowerPlants(force = $.force) catch {
+            yield BuildRenewableSitingMap(status = "failed", html_path = "", detail = "power plant download failed")
+        }
+        sited = AnnotateRenewableSiting(
+            force = $.force,
+            dependency_signal = plants.feature_count
+        ) catch {
+            yield BuildRenewableSitingMap(status = "failed", html_path = "", detail = "resource annotation failed")
+        }
+        map = BuildMap(
+            region = "siting",
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            dependency_signal = sited.feature_count,
+            only_layers = "siting-*",
+            attribution_workflow = "save_earth.workflows.BuildRenewableSitingMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "Renewable-energy siting: solar and wind power plants (WRI Global Power Plant Database) coloured by the local RESOURCE - how good the sun/wind actually is where each plant sits, from NASA POWER's 20-year climatology (solar GHI / 50 m wind speed). Larger, darker-red points sit on a better resource (well sited); smaller, yellow points sit on a poorer one. Toggle the solar/wind layers in the legend; click any plant for its full WRI record plus the sampled resource value. Cached: re-runs reuse the cache unless force=true."
+        ) catch {
+            yield BuildRenewableSitingMap(status = "failed", html_path = "", detail = "map build failed")
+        }
+        yield BuildRenewableSitingMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = "siting map: " ++ sited.feature_count ++ " solar+wind plants, " ++ sited.cells_sampled ++ " resource cells sampled"
         )
     }
 
