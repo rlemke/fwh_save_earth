@@ -14,10 +14,21 @@ datasets into an interactive map:
     Overpass API (every OSM tag kept verbatim)
   - **OSM volcanoes** — major (notable) volcanoes from OSM
   - **OSM LGBTQ+ venues** — LGBTQ+ bars, pubs, clubs & restaurants from OSM
+  - **OSM research telescopes** + **Tesla charging stations** — from OSM
+  - **OSM ethnic & cultural enclaves** — heritage-named neighbourhoods
+    (Chinatown, Japantown, Little Italy, Koreatown, …; 22 heritages, each a
+    word-anchored name pattern over OSM `place`/`neighbourhood` features)
   - **USGS earthquakes** — recent significant quakes (M4.5+, past 30 days) from
     the USGS real-time GeoJSON feed (properties verbatim + derived `depth_km`)
   - **Fault lines** — tectonic plate boundaries (Peter Bird 2002 `PB2002`),
     LineString geometry — the world-scale fault systems
+  - **Power infrastructure** — power plants by primary fuel (hydro / coal /
+    solar / wind / nuclear) from the WRI Global Power Plant DB, plus the
+    **≥500 kV transmission lines** from OSM. The transmission fetch is bounded
+    and **cache-aware** (it never re-downloads when the layer is already cached)
+    and is fetched **sequentially**, not fanned out — a documented "when *not*
+    to fan out" case, because Overpass rate-limits ~2 concurrent queries per IP
+    and the whole fleet shares one egress IP, so wide fan-out only thrashes.
 - **Map build** — `save_earth.maps.BuildMap` auto-discovers every cached layer
   and renders a self-contained MapLibre HTML bundle (CARTO Voyager basemap,
   no API key, works from `file://`). Layers render as points (circles) or
@@ -28,8 +39,10 @@ datasets into an interactive map:
   toggles are built in.
 - **Workflows** — `BuildGlobalMap` / `BuildRegionalMap` / `BuildNuclearReactorMap`
   / `BuildVolcanoMap` / `BuildLgbtqVenueMap` / `BuildSeismicMap` (earthquakes
-  over the fault lines) download in parallel (with `catch` blocks for graceful
-  partial failure) and chain into the map build.
+  over the fault lines) / `BuildEnclaveMap` (heritage-named neighbourhoods) /
+  `BuildPowerMap` (plants by fuel + ≥500 kV transmission) download in parallel
+  (with `catch` blocks for graceful partial failure) and chain into the map
+  build.
 - **Storage** — caches + map outputs follow `AFL_STORAGE`: `local`, `hdfs`, or
   `s3` (the fleet MinIO). Downloads stage locally and finalize onto the active
   backend, so an object store needs no shared filesystem.
@@ -85,7 +98,7 @@ fwh_save_earth/
 │   ├── ffl/save_earth.ffl               # schemas, mixins, facets, workflows
 │   ├── handlers/
 │   │   ├── __init__.py                  # register_all_registry_handlers(runner)
-│   │   ├── sources/source_handlers.py   # Download{OpenLitterMap,EpaCleanups,Tri,NuclearReactors,Volcanoes,LgbtqVenues,Earthquakes,Faults}
+│   │   ├── sources/source_handlers.py   # Download{OpenLitterMap,EpaCleanups,Tri,NuclearReactors,Volcanoes,LgbtqVenues,Earthquakes,Faults,EthnicEnclaves,PowerPlants,Transmission}
 │   │   ├── maps/map_handlers.py         # BuildMap
 │   │   └── shared/save_earth_utils.py   # sys.path shim re-exporting tools/_save_earth_tools
 │   └── tools/                           # CLIs + shell wrappers, backed by tools/_save_earth_tools/
