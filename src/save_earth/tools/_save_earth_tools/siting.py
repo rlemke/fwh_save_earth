@@ -34,7 +34,7 @@ import logging
 import os
 import sys
 import threading
-import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -151,7 +151,7 @@ def _layer_count(rel: str, s: Storage) -> int:
 
 
 def annotate(*, force: bool = False, grid_deg: float = 0.5,
-             throttle_s: float = 0.2, storage: Storage | None = None) -> SitingResult:
+             max_workers: int = 8, storage: Storage | None = None) -> SitingResult:
     """Annotate cached solar/wind plants with NASA POWER resource + siting score.
 
     Cache-aware: returns immediately if both annotated layers already exist
@@ -182,19 +182,29 @@ def annotate(*, force: bool = False, grid_deg: float = 0.5,
             "no solar/wind plants cached — run DownloadPowerPlants first")
 
     params = [p for _, _, p, _, _ in RESOURCES]
+    cell_list = sorted(cells)
     sampled: dict[tuple[int, int], dict[str, float]] = {}
-    with _lock:
-        for i, key in enumerate(sorted(cells)):
-            clon, clat = _cell_center(key, grid_deg)
-            try:
-                sampled[key] = _nasa_power(clat, clon, params)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("NASA POWER cell (%s,%s) failed: %s", clon, clat, exc)
-                sampled[key] = {}
-            if (i + 1) % 50 == 0:
-                logger.info("sampled %d/%d cells", i + 1, len(cells))
-            if throttle_s:
-                time.sleep(throttle_s)
+
+    def _sample(key: tuple[int, int]) -> tuple[tuple[int, int], dict[str, float]]:
+        clon, clat = _cell_center(key, grid_deg)
+        try:
+            return key, _nasa_power(clat, clon, params)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("NASA POWER cell (%s,%s) failed: %s", clon, clat, exc)
+            return key, {}
+
+    # Bounded IN-PROCESS concurrency — NOT a fleet fan-out. NASA POWER is a
+    # programmatic data API that tolerates modest parallelism, so a small pool
+    # inside this single task turns ~4k sequential point calls into a couple of
+    # minutes instead of half an hour (which would blow the execution timeout
+    # on this non-heartbeating blocking handler).
+    done = 0
+    with _lock, ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
+        for key, vals in pool.map(_sample, cell_list):
+            sampled[key] = vals
+            done += 1
+            if done % 200 == 0:
+                logger.info("sampled %d/%d cells", done, len(cell_list))
 
     per, files = {}, []
     src = {"publisher": "NASA POWER (climatology) + WRI Global Power Plant Database",

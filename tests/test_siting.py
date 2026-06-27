@@ -70,7 +70,7 @@ def test_grid_dedup_and_annotation(local_storage, monkeypatch):
 
     monkeypatch.setattr(siting, "_nasa_power", fake_power)
 
-    res = siting.annotate(force=True, grid_deg=0.5, throttle_s=0)
+    res = siting.annotate(force=True, grid_deg=0.5, max_workers=1)
 
     # 3 solar + 2 wind = 5 plants, but their locations collapse to 3 unique cells
     # ((-115,35) shared by 3 plants, (10,48), (-3,56)).
@@ -98,7 +98,7 @@ def test_no_data_cell_leaves_plant_unscored(local_storage, monkeypatch):
     _write_plants("wind", [])
     monkeypatch.setattr(siting, "_nasa_power", lambda lat, lon, params: {})  # no-data
 
-    res = siting.annotate(force=True, grid_deg=0.5, throttle_s=0)
+    res = siting.annotate(force=True, grid_deg=0.5, max_workers=1)
     assert res.feature_count == 1
     ft = _read_sited("siting_solar.geojson")[0]
     assert "ghi_kwh_m2_day" not in ft["properties"]
@@ -114,13 +114,13 @@ def test_cache_aware_skips_resampling(local_storage, monkeypatch):
     monkeypatch.setattr(siting, "_nasa_power",
                         lambda lat, lon, params: {"ALLSKY_SFC_SW_DWN": 6.0, "WS50M": 9.5})
 
-    first = siting.annotate(force=True, grid_deg=0.5, throttle_s=0)
+    first = siting.annotate(force=True, grid_deg=0.5, max_workers=1)
     assert first.was_cached is False
 
     def boom(*a, **k):  # must NOT be called on the cached path
         raise AssertionError("NASA POWER hit on a cached run")
 
     monkeypatch.setattr(siting, "_nasa_power", boom)
-    second = siting.annotate(force=False, grid_deg=0.5, throttle_s=0)
+    second = siting.annotate(force=False, grid_deg=0.5, max_workers=1)
     assert second.was_cached is True
     assert second.feature_count == 2
