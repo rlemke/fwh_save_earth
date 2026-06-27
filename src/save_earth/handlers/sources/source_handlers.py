@@ -194,12 +194,26 @@ def handle_list_transmission_tiles(params: dict[str, Any]) -> dict[str, Any]:
     return {"tiles": tiles, "count": len(tiles)}
 
 
+def handle_download_transmission(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadTransmission — ≥500 kV lines worldwide (bounded, cache-aware).
+
+    Fetches the tiles one at a time (Overpass rate-limits ~2/IP, so a wide fan-out
+    just thrashes), and only when ``transmission.geojson`` isn't already cached."""
+    step_log = params.get("_step_log")
+    force = bool(params.get("force", False))
+    _step_log(step_log, f"DownloadTransmission force={force}")
+    res = power.download_transmission(force=force)
+    status = "cache" if res.was_cached else "download"
+    _step_log(step_log, f"[{status}] {res.feature_count:,} transmission lines ≥500 kV", "success")
+    return {"cache_type": power.CACHE_TYPE, "feature_count": res.feature_count, "was_cached": res.was_cached}
+
+
 def handle_download_transmission_tile(params: dict[str, Any]) -> dict[str, Any]:
     """Handle DownloadTransmissionTile — ≥500 kV lines for ONE bbox (fan-out leaf)."""
     step_log = params.get("_step_log")
     bbox = params.get("bbox", "")
     _step_log(step_log, f"DownloadTransmissionTile bbox={bbox}")
-    n = power.download_transmission_tile(bbox)
+    n = power.download_transmission_tile(bbox, force=bool(params.get("force", False)))
     _step_log(step_log, f"[tile {bbox}] {n:,} lines ≥500 kV", "success")
     return {"bbox": bbox, "feature_count": n}
 
@@ -327,6 +341,7 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadNuclearReactors": handle_download_nuclear_reactors,
     f"{NAMESPACE}.DownloadEthnicEnclaves": handle_download_ethnic_enclaves,
     f"{NAMESPACE}.DownloadPowerPlants": handle_download_power_plants,
+    f"{NAMESPACE}.DownloadTransmission": handle_download_transmission,
     f"{NAMESPACE}.ListTransmissionTiles": handle_list_transmission_tiles,
     f"{NAMESPACE}.DownloadTransmissionTile": handle_download_transmission_tile,
     f"{NAMESPACE}.MergeTransmission": handle_merge_transmission,

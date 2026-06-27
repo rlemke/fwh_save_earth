@@ -135,8 +135,19 @@ def _persist_layer(rel: str, features: list[dict], storage: Storage, *, source: 
 # Power plants (WRI Global Power Plant Database)
 # ---------------------------------------------------------------------------
 
+def _layer_count(rel: str, s: Storage) -> int:
+    side = sidecar.read_sidecar(NAMESPACE, CACHE_TYPE, rel, s)
+    return int((side.get("extra") or {}).get("feature_count", 0)) if side else 0
+
+
 def download_plants(*, force: bool = False, storage: Storage | None = None) -> DownloadResult:
     s = storage or get_storage()
+    # Cache-aware: only fetch from WRI when the layers aren't already cached.
+    if not force:
+        present = {slug: f"{slug}.geojson" for slug, *_ in FUELS}
+        if all(s.exists(sidecar.cache_path(NAMESPACE, CACHE_TYPE, rel, s)) for rel in present.values()):
+            per = {slug: _layer_count(rel, s) for slug, rel in present.items()}
+            return DownloadResult(CACHE_TYPE, sum(per.values()), per, True, WRI_CSV, [])
     if requests is None:
         raise RuntimeError("requests not installed")
     with _lock:
@@ -189,6 +200,10 @@ def _overpass(query: str):
 
 def download_transmission(*, force: bool = False, storage: Storage | None = None) -> DownloadResult:
     s = storage or get_storage()
+    # Cache-aware: only hit Overpass when the merged layer isn't already cached.
+    if not force and s.exists(sidecar.cache_path(NAMESPACE, CACHE_TYPE, "transmission.geojson", s)):
+        n = _layer_count("transmission.geojson", s)
+        return DownloadResult(CACHE_TYPE, n, {"transmission": n}, True, OVERPASS_ENDPOINTS[0], [])
     if requests is None or LineString is None:
         raise RuntimeError("requests + shapely required")
     seen: set[int] = set()
@@ -254,10 +269,14 @@ def _line_features(els: list[dict]) -> list[dict]:
     return feats
 
 
-def download_transmission_tile(bbox: str, *, storage: Storage | None = None) -> int:
+def download_transmission_tile(bbox: str, *, force: bool = False, storage: Storage | None = None) -> int:
     """Fetch ≥500 kV lines for ONE bbox ("S,W,N,E") and cache as a per-tile file.
-    Designed to run in parallel (one task per continental bbox)."""
+    Cache-aware: skips Overpass when this tile is already cached (only fetches when
+    absent), so re-runs of the fan-out don't re-hit the rate-limited API."""
     s = storage or get_storage()
+    rel = f"{TILES_SUBDIR}/{_bbox_slug(bbox)}.geojson"
+    if not force and s.exists(sidecar.cache_path(NAMESPACE, CACHE_TYPE, rel, s)):
+        return _layer_count(rel, s)
     if requests is None or LineString is None:
         raise RuntimeError("requests + shapely required")
     south, west, north, east = (p.strip() for p in bbox.split(","))
