@@ -191,6 +191,52 @@ namespace save_earth.sources {
         used_mock: Boolean
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
+    /** Download world power plants by source from the WRI Global Power Plant
+      * Database — hydro (dams) / coal / solar / wind / nuclear, ~35k plants,
+      * one GeoJSON per source. Every WRI field (name, capacity_mw, fuel,
+      * commissioning year, country, owner) is kept for the popup. */
+    event facet DownloadPowerPlants(
+        force: Boolean = false
+    ) => (
+        cache_type: String,
+        feature_count: Int,
+        layer_count: Int,
+        source_url: String
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
+    /** Fetch ≥500 kV transmission lines for ONE bounding box ("S,W,N,E") from
+      * OSM, cached as a per-tile GeoJSON. A single global query 504s, so the
+      * world is tiled and these tiles run in PARALLEL (ScanTransmissionTiles). */
+    event facet DownloadTransmissionTile(
+        bbox: String
+    ) => (
+        bbox: String,
+        feature_count: Int
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate") with Timeout(minutes = 15)
+
+    /** Fan out the ≥500 kV transmission fetch across continental bounding boxes —
+      * one DownloadTransmissionTile per bbox, in parallel across the fleet, so a
+      * region that times out retries on its own without sinking the whole fetch. */
+    event facet ScanTransmissionTiles(
+        bboxes: [String]
+    ) => (
+        count: Int
+    ) andThen foreach bbox in $.bboxes {
+        tile = DownloadTransmissionTile(bbox = $.bbox)
+        yield ScanTransmissionTiles(count = 1)
+    }
+
+    /** Merge the per-tile transmission GeoJSONs into one ≥500 kV layer, deduping
+      * lines that cross a tile border by OSM way id. ``dependency_signal``
+      * sequences this strictly after the tile fan-out completes. */
+    event facet MergeTransmission(
+        bboxes: [String],
+        dependency_signal: Int = 0
+    ) => (
+        cache_type: String,
+        feature_count: Int
+    ) with Effect(kind = "io") with Cost(tier = "cheap")
+
     /** Download worldwide major (notable) volcanoes from OSM.
       *
       * Queries the OpenStreetMap Overpass API for every feature tagged
@@ -566,6 +612,45 @@ namespace save_earth.workflows {
             status = "completed",
             html_path = map.html_path,
             detail = "enclave map with " ++ enclaves.feature_count ++ " place(s) across " ++ enclaves.heritage_count ++ " heritage(s)"
+        )
+    }
+
+    /** Build the world power-infrastructure map: power plants by source (WRI:
+      * hydro / coal / solar / wind / nuclear) as five coloured, toggleable point
+      * layers, plus a ≥500 kV transmission-line layer (OSM). Each layer has no
+      * curated field list, so clicking any plant or line shows its full record. */
+    workflow BuildPowerMap(
+        bboxes: [String] = ["10,-170,75,-48", "-58,-85,14,-32", "34,-28,72,42", "-37,-20,38,55", "3,42,45,90", "3,90,55,150", "45,42,78,180", "-48,110,2,180"],
+        center_lat: Double = 25.0,
+        center_lon: Double = 5.0,
+        zoom: Double = 1.6
+    ) => (status: String, html_path: String, detail: String) andThen {
+        plants = DownloadPowerPlants() catch {
+            yield BuildPowerMap(status = "failed", html_path = "", detail = "power plant download failed")
+        }
+        scan = ScanTransmissionTiles(bboxes = $.bboxes) catch {
+            yield BuildPowerMap(status = "failed", html_path = "", detail = "transmission tile fan-out failed")
+        }
+        merge = MergeTransmission(bboxes = $.bboxes, dependency_signal = scan.count) catch {
+            yield BuildPowerMap(status = "failed", html_path = "", detail = "transmission merge failed")
+        }
+        map = BuildMap(
+            region = "power",
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            dependency_signal = plants.feature_count + merge.feature_count,
+            only_layers = "power-*",
+            attribution_workflow = "save_earth.workflows.BuildPowerMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "World power infrastructure: power plants by source (hydro/dams, coal, solar, wind, nuclear) from the WRI Global Power Plant Database, plus major (>=500 kV) transmission lines from OpenStreetMap (fetched as a per-continent fan-out, merged). Toggle each source in the legend; click any plant or line for its full record. Transmission lines are the highest-voltage backbone only - OSM has no plant-to-substation linkage at world scale."
+        ) catch {
+            yield BuildPowerMap(status = "failed", html_path = "", detail = "map build failed")
+        }
+        yield BuildPowerMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = "power map: " ++ plants.feature_count ++ " plants + " ++ merge.feature_count ++ " transmission lines (fanned out across " ++ scan.count ++ " tiles)"
         )
     }
 

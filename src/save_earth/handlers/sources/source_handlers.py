@@ -13,6 +13,7 @@ from typing import Any
 
 from ..shared.save_earth_utils import (
     enclaves,
+    power,
     epa_cleanups,
     lgbtq,
     nuclear,
@@ -174,6 +175,37 @@ def handle_download_ethnic_enclaves(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def handle_download_power_plants(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadPowerPlants — world power plants by source (WRI database)."""
+    step_log = params.get("_step_log")
+    _step_log(step_log, "DownloadPowerPlants (WRI Global Power Plant Database)")
+    res = power.download_plants(force=bool(params.get("force", False)))
+    top = ", ".join(f"{k}={v}" for k, v in sorted(res.per_layer.items(), key=lambda x: -x[1]))
+    _step_log(step_log, f"[download] power plants  {res.feature_count:,} ({top})", "success")
+    return {"cache_type": power.CACHE_TYPE, "feature_count": res.feature_count,
+            "layer_count": len(res.per_layer), "source_url": res.source_url}
+
+
+def handle_download_transmission_tile(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadTransmissionTile — ≥500 kV lines for ONE bbox (fan-out leaf)."""
+    step_log = params.get("_step_log")
+    bbox = params.get("bbox", "")
+    _step_log(step_log, f"DownloadTransmissionTile bbox={bbox}")
+    n = power.download_transmission_tile(bbox)
+    _step_log(step_log, f"[tile {bbox}] {n:,} lines ≥500 kV", "success")
+    return {"bbox": bbox, "feature_count": n}
+
+
+def handle_merge_transmission(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle MergeTransmission — merge the per-tile line GeoJSONs (dedupe by way id)."""
+    step_log = params.get("_step_log")
+    bboxes = params.get("bboxes") or []
+    _step_log(step_log, f"MergeTransmission ({len(bboxes)} tiles)")
+    n = power.merge_transmission(list(bboxes))
+    _step_log(step_log, f"[merge] {n:,} transmission lines ≥500 kV", "success")
+    return {"cache_type": power.CACHE_TYPE, "feature_count": n}
+
+
 def handle_download_volcanoes(params: dict[str, Any]) -> dict[str, Any]:
     """Handle DownloadVolcanoes — worldwide major (notable) volcanoes from OSM."""
     force = bool(params.get("force", False))
@@ -286,6 +318,9 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadTri": handle_download_tri,
     f"{NAMESPACE}.DownloadNuclearReactors": handle_download_nuclear_reactors,
     f"{NAMESPACE}.DownloadEthnicEnclaves": handle_download_ethnic_enclaves,
+    f"{NAMESPACE}.DownloadPowerPlants": handle_download_power_plants,
+    f"{NAMESPACE}.DownloadTransmissionTile": handle_download_transmission_tile,
+    f"{NAMESPACE}.MergeTransmission": handle_merge_transmission,
     f"{NAMESPACE}.DownloadVolcanoes": handle_download_volcanoes,
     f"{NAMESPACE}.DownloadLgbtqVenues": handle_download_lgbtq_venues,
     f"{NAMESPACE}.DownloadTeslaChargers": handle_download_tesla_chargers,

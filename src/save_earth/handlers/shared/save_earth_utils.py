@@ -28,6 +28,7 @@ if str(_TOOLS_ROOT) not in sys.path:
 
 from _save_earth_tools import (  # noqa: E402,F401
     enclaves,
+    power,
     epa_cleanups,
     lgbtq,
     map_render,
@@ -64,6 +65,7 @@ __all__ = [
     "LocalStorage",
     "get_storage",
     "enclaves",
+    "power",
     "epa_cleanups",
     "map_render",
     "nuclear",

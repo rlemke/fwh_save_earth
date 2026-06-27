@@ -10,6 +10,7 @@ from typing import Any
 from ..shared.save_earth_utils import (
     enclaves,
     get_storage,
+    power,
     lgbtq,
     map_render,
     nuclear,
@@ -229,6 +230,39 @@ def _enclave_layers(storage) -> list[map_render.LayerSpec]:
     return layers
 
 
+def _power_layers(storage) -> list[map_render.LayerSpec]:
+    """One coloured point layer per power source (hydro/coal/solar/wind/nuclear,
+    from the WRI Global Power Plant Database) + a ≥500 kV transmission-line layer
+    (OSM). Layer ids are ``power-<slug>`` so the workflow selects them with
+    ``only_layers="power-*"``. description_fields=None → the popup shows the full
+    WRI record / OSM tags."""
+    layers: list[map_render.LayerSpec] = []
+    for slug, _wri, label, color in power.FUELS:
+        layers.append(
+            map_render.LayerSpec(
+                name=f"power-{slug}",
+                title=f"{label} power plants",
+                source_cache_type=power.CACHE_TYPE,
+                source_relative_path=f"{slug}.geojson",
+                color=color,
+                radius=4,
+            )
+        )
+    layers.append(
+        map_render.LayerSpec(
+            name="power-transmission",
+            title="Transmission lines ≥500 kV (OSM)",
+            source_cache_type=power.CACHE_TYPE,
+            source_relative_path="transmission.geojson",
+            color="#e91e63",
+            geometry="line",
+            weight=0.7,
+            description_fields=None,
+        )
+    )
+    return layers
+
+
 def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     """Handle BuildMap — auto-discover every cached layer and render HTML."""
     region = params.get("region", "global") or "global"
@@ -253,7 +287,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     # Faults (lines) before earthquakes (points) so quakes draw on top.
     candidates = (
         [_NUCLEAR_LAYER, _VOLCANO_LAYER, _LGBTQ_LAYER, _TESLA_LAYER, _TELESCOPE_LAYER, _FAULTS_LAYER, _EARTHQUAKE_LAYER]
-        + _EPA_LAYERS + _openlittermap_layers(storage) + _enclave_layers(storage)
+        + _EPA_LAYERS + _openlittermap_layers(storage) + _enclave_layers(storage) + _power_layers(storage)
     )
     if only:
         # Exact name match, plus a trailing-"*" prefix wildcard so a workflow can
