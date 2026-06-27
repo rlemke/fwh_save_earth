@@ -4,7 +4,7 @@ Two sources, cached under ``cache/save-earth/power/``:
 
 - **Power plants** from the WRI **Global Power Plant Database** (~35k plants
   worldwide). Classified by ``primary_fuel`` into one GeoJSON per source —
-  hydro (dams) / coal / solar / wind / nuclear — so the map draws one coloured,
+  hydro (dams) / coal / natural gas / solar / wind / nuclear — so the map draws one coloured,
   toggleable layer each. Every WRI field is kept (name, capacity_mw,
   commissioning_year, country, owner, …) so the popup shows the full record.
 - **Transmission lines** from OpenStreetMap: ``power=line`` at **≥500 kV** (the
@@ -56,10 +56,11 @@ OVERPASS_ENDPOINTS = (
 )
 USER_AGENT = "facetwork-save-earth/1.0 (+https://github.com/rlemke/facetwork)"
 
-# WRI primary_fuel -> (slug, label, colour). "Hydro" = dams.
+# WRI primary_fuel -> (slug, label, colour). "Hydro" = dams; "Gas" = natural gas.
 FUELS = [
     ("hydro",   "Hydro", "Hydroelectric (dams)", "#1565c0"),
     ("coal",    "Coal",  "Coal",                 "#37474f"),
+    ("gas",     "Gas",   "Natural gas",          "#8e24aa"),
     ("solar",   "Solar", "Solar",                "#f9a825"),
     ("wind",    "Wind",  "Wind",                 "#2e7d32"),
     ("nuclear", "Nuclear", "Nuclear",            "#d84315"),

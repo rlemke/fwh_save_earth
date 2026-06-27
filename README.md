@@ -23,7 +23,7 @@ datasets into an interactive map:
   - **Fault lines** — tectonic plate boundaries (Peter Bird 2002 `PB2002`),
     LineString geometry — the world-scale fault systems
   - **Power infrastructure** — power plants by primary fuel (hydro / coal /
-    solar / wind / nuclear) from the WRI Global Power Plant DB, plus the
+    natural gas / solar / wind / nuclear) from the WRI Global Power Plant DB, plus the
     **≥500 kV transmission lines** from OSM. The transmission fetch is bounded
     and **cache-aware** (it never re-downloads when the layer is already cached)
     and is fetched **sequentially**, not fanned out — a documented "when *not*
