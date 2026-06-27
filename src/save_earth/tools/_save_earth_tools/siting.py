@@ -3,9 +3,8 @@
 Answers the *siting* question that the bare power-infrastructure map can't:
 **is each renewable plant actually where the sun/wind is good?** It reads the
 WRI ``solar.geojson`` / ``wind.geojson`` plant layers produced by
-:func:`power.download_plants`, samples each plant's location against NASA
-POWER's 20-year climatology, and writes two annotated layers under
-``cache/save-earth/siting/``:
+:func:`power.download_plants`, looks up the local resource for each plant, and
+writes two annotated layers under ``cache/save-earth/siting/``:
 
   ``siting_solar.geojson`` — every solar plant + ``ghi_kwh_m2_day`` + ``siting_score``
   ``siting_wind.geojson``  — every wind  plant + ``wind_speed_ms``  + ``siting_score``
@@ -16,16 +15,20 @@ magnitude ramp (yellow = poor → dark-red = excellent) sizes + colours each pla
 by how well it is sited — with **no renderer change**. The raw value is kept for
 the popup.
 
-Data source — **NASA POWER** (https://power.larc.nasa.gov): a free, no-key,
-global point climatology API. ``ALLSKY_SFC_SW_DWN`` is the all-sky surface solar
-irradiance (GHI, kWh/m²/day); ``WS50M`` is the mean wind speed at 50 m (m/s).
-Resource varies smoothly in space, so plant locations are de-duplicated onto a
-coarse grid (default 1.0°) and ONE climatology call is made per unique cell
-(both parameters at once) — ~2.3k calls at a polite in-process concurrency of 4
-(with 429 retry/backoff) inside a single cached handler. This is bounded
-concurrency, **not** a fleet fan-out: NASA POWER throttles bursts (8-way drew
-mass 429s), so the pool stays small and every cell retries rather than silently
-dropping.
+Data source — **NASA POWER** (https://power.larc.nasa.gov), free, no key,
+global. ``ALLSKY_SFC_SW_DWN`` is the all-sky surface solar irradiance (GHI,
+kWh/m²/day); ``WS50M`` is the mean wind speed at 50 m (m/s).
+
+**Why the REGIONAL endpoint, not per-point.** NASA POWER throttles sustained
+point-query volume (a per-point sweep of ~2k cells trips HTTP 429 after a few
+hundred calls and then crawls in backoff). The *regional* endpoint instead
+returns a whole 1° grid for a bounding box in ONE call (max 10°×10° = 100
+points, one parameter per call). So we fetch only the ~10° tiles that actually
+contain plants — ~250 calls cover all ~16k plants worldwide at 1° resolution —
+build an in-memory grid, and sample every plant locally. Far fewer calls (stays
+under the throttle), bounded wall-time, and the grid is cached so re-runs are
+free. Calls run at a small in-process concurrency with 429/5xx retry+backoff —
+bounded concurrency, NOT a fleet fan-out.
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import sys
 import threading
@@ -58,9 +62,10 @@ logger = logging.getLogger("save-earth.siting")
 NAMESPACE = "save-earth"
 CACHE_TYPE = "siting"
 
-NASA_POWER_URL = "https://power.larc.nasa.gov/api/temporal/climatology/point"
+REGIONAL_URL = "https://power.larc.nasa.gov/api/temporal/climatology/regional"
 USER_AGENT = "facetwork-save-earth/1.0 (+https://github.com/rlemke/facetwork)"
 _FILL = -999.0  # NASA POWER no-data sentinel
+_TILE = 10      # regional endpoint max bounding box = 10° × 10° (a 1° grid)
 
 # One annotated layer per renewable source: (source slug in the WRI/power cache,
 # output filename, NASA POWER parameter, raw-property name, (domain_lo, domain_hi)).
@@ -90,7 +95,7 @@ class SitingResult:
     cache_type: str
     feature_count: int
     per_layer: dict[str, int]
-    cells_sampled: int
+    cells_sampled: int  # number of 1° grid cells populated from NASA POWER
     was_cached: bool
     source_url: str
     files: list[str] = field(default_factory=list)
@@ -103,48 +108,47 @@ def _siting_score(value: float, lo: float, hi: float) -> float:
     return round(_SCORE_LO + (_SCORE_HI - _SCORE_LO) * frac, 3)
 
 
-def _cell(lon: float, lat: float, step: float) -> tuple[int, int]:
-    """Coarse-grid key for de-duplicating NASA POWER calls."""
-    return (round(lon / step), round(lat / step))
+def _cell(lon: float, lat: float) -> tuple[int, int]:
+    """1° grid cell key — floor maps both a plant and the NASA grid-point centre
+    (X.5) to the same integer cell."""
+    return (math.floor(lon), math.floor(lat))
 
 
-def _cell_center(key: tuple[int, int], step: float) -> tuple[float, float]:
-    return (round(key[0] * step, 4), round(key[1] * step, 4))
+def _tile(lon: float, lat: float) -> tuple[int, int]:
+    """The 10° regional tile origin (SW corner) containing a point."""
+    return (math.floor(lon / _TILE) * _TILE, math.floor(lat / _TILE) * _TILE)
 
 
-def _nasa_power(lat: float, lon: float, params: list[str], *, max_retries: int = 5) -> dict[str, float]:
-    """One NASA POWER climatology call → {param: ANN value} (skips no-data).
+def _regional(param: str, tlon: int, tlat: int, *, max_retries: int = 5) -> list[tuple[float, float, float]]:
+    """Fetch one 10° tile's 1° grid for ``param`` → [(lon, lat, ANN), …].
 
-    Retries 429 / 5xx with exponential backoff (honouring ``Retry-After``) so a
-    burst against NASA POWER's rate limit recovers instead of dropping the cell —
-    the failure mode that left 87% of plants unscored on the first concurrent
-    attempt.
+    Retries 429 / 5xx with exponential backoff (honouring ``Retry-After``).
     """
     if requests is None:
         raise RuntimeError("requests not installed")
     sess = _session()
     delay = 1.5
     for attempt in range(max_retries + 1):
-        r = sess.get(
-            NASA_POWER_URL,
-            params={"parameters": ",".join(params), "community": "RE",
-                    "longitude": lon, "latitude": lat, "format": "JSON"},
-            timeout=(30, 120),
-        )
+        r = sess.get(REGIONAL_URL, params={
+            "parameters": param, "community": "RE",
+            "latitude-min": tlat, "latitude-max": min(tlat + _TILE, 90),
+            "longitude-min": tlon, "longitude-max": min(tlon + _TILE, 180),
+            "format": "JSON",
+        }, timeout=(30, 180))
         if r.status_code in (429, 500, 502, 503, 504) and attempt < max_retries:
             wait = r.headers.get("Retry-After")
             time.sleep(min(float(wait) if wait else delay, 30.0))
             delay = min(delay * 2, 30.0)
             continue
         r.raise_for_status()
-        block = r.json()["properties"]["parameter"]
-        out: dict[str, float] = {}
-        for p in params:
-            ann = (block.get(p) or {}).get("ANN")
+        out: list[tuple[float, float, float]] = []
+        for f in r.json().get("features", []):
+            c = f["geometry"]["coordinates"]
+            ann = (f["properties"].get("parameter", {}).get(param) or {}).get("ANN")
             if ann is not None and float(ann) > _FILL:
-                out[p] = float(ann)
+                out.append((float(c[0]), float(c[1]), float(ann)))
         return out
-    return {}
+    return []
 
 
 def _read_layer(rel: str, s: Storage) -> list[dict]:
@@ -178,8 +182,28 @@ def _layer_count(rel: str, s: Storage) -> int:
     return int((side.get("extra") or {}).get("feature_count", 0)) if side else 0
 
 
-def annotate(*, force: bool = False, grid_deg: float = 1.0,
-             max_workers: int = 4, storage: Storage | None = None) -> SitingResult:
+def _fetch_grid(param: str, tiles: set[tuple[int, int]], max_workers: int) -> dict[tuple[int, int], float]:
+    """Fetch every needed 10° tile for ``param`` and assemble a 1° grid lookup."""
+    grid: dict[tuple[int, int], float] = {}
+
+    def fetch(tile: tuple[int, int]):
+        try:
+            return _regional(param, tile[0], tile[1])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("NASA POWER regional %s tile %s failed: %s", param, tile, exc)
+            return []
+
+    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
+        for i, pts in enumerate(pool.map(fetch, sorted(tiles))):
+            for lon, lat, val in pts:
+                grid[_cell(lon, lat)] = val
+            if (i + 1) % 25 == 0:
+                logger.info("%s: fetched %d/%d tiles (%d cells)", param, i + 1, len(tiles), len(grid))
+    return grid
+
+
+def annotate(*, force: bool = False, max_workers: int = 3,
+             storage: Storage | None = None) -> SitingResult:
     """Annotate cached solar/wind plants with NASA POWER resource + siting score.
 
     Cache-aware: returns immediately if both annotated layers already exist
@@ -190,61 +214,36 @@ def annotate(*, force: bool = False, grid_deg: float = 1.0,
     outs = [rel for _, rel, *_ in RESOURCES]
     if not force and all(s.exists(sidecar.cache_path(NAMESPACE, CACHE_TYPE, rel, s)) for rel in outs):
         per = {rel: _layer_count(rel, s) for rel in outs}
-        return SitingResult(CACHE_TYPE, sum(per.values()), per, 0, True, NASA_POWER_URL, [])
+        return SitingResult(CACHE_TYPE, sum(per.values()), per, 0, True, REGIONAL_URL, [])
 
-    # Load source plants and collect the unique grid cells to sample (across all
-    # resources, so a cell shared by a nearby solar+wind plant is sampled once).
-    loaded: dict[str, list[dict]] = {}
-    cells: set[tuple[int, int]] = set()
-    for slug, _rel, _param, _prop, _dom in RESOURCES:
-        feats = _read_layer(f"{slug}.geojson", s)
-        loaded[slug] = feats
-        for ft in feats:
-            try:
-                lon, lat = ft["geometry"]["coordinates"][:2]
-            except (KeyError, TypeError, ValueError):
-                continue
-            cells.add(_cell(float(lon), float(lat), grid_deg))
+    loaded: dict[str, list[dict]] = {slug: _read_layer(f"{slug}.geojson", s) for slug, *_ in RESOURCES}
     if not any(loaded.values()):
-        raise RuntimeError(
-            "no solar/wind plants cached — run DownloadPowerPlants first")
+        raise RuntimeError("no solar/wind plants cached — run DownloadPowerPlants first")
 
-    params = [p for _, _, p, _, _ in RESOURCES]
-    cell_list = sorted(cells)
-    sampled: dict[tuple[int, int], dict[str, float]] = {}
-
-    def _sample(key: tuple[int, int]) -> tuple[tuple[int, int], dict[str, float]]:
-        clon, clat = _cell_center(key, grid_deg)
-        try:
-            return key, _nasa_power(clat, clon, params)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("NASA POWER cell (%s,%s) failed: %s", clon, clat, exc)
-            return key, {}
-
-    # Bounded IN-PROCESS concurrency — NOT a fleet fan-out. NASA POWER is a
-    # programmatic data API that tolerates modest parallelism, so a small pool
-    # inside this single task turns ~4k sequential point calls into a couple of
-    # minutes instead of half an hour (which would blow the execution timeout
-    # on this non-heartbeating blocking handler).
-    done = 0
-    with _lock, ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
-        for key, vals in pool.map(_sample, cell_list):
-            sampled[key] = vals
-            done += 1
-            if done % 200 == 0:
-                logger.info("sampled %d/%d cells", done, len(cell_list))
+    # One resource grid per parameter, fetched only over the 10° tiles that hold
+    # that resource's plants.
+    grids: dict[str, dict[tuple[int, int], float]] = {}
+    with _lock:
+        for slug, _rel, param, _prop, _dom in RESOURCES:
+            if param in grids:
+                continue
+            tiles = {_tile(*ft["geometry"]["coordinates"][:2])
+                     for ft in loaded[slug] if ft.get("geometry", {}).get("coordinates")}
+            logger.info("%s: %d plants over %d tiles", param, len(loaded[slug]), len(tiles))
+            grids[param] = _fetch_grid(param, tiles, max_workers)
 
     per, files = {}, []
-    src = {"publisher": "NASA POWER (climatology) + WRI Global Power Plant Database",
-           "url": NASA_POWER_URL, "license": "NASA POWER: free / WRI: CC BY 4.0"}
+    src = {"publisher": "NASA POWER (climatology, regional) + WRI Global Power Plant Database",
+           "url": REGIONAL_URL, "license": "NASA POWER: free / WRI: CC BY 4.0"}
     for slug, rel, param, prop, (lo, hi) in RESOURCES:
+        grid = grids.get(param, {})
         annotated: list[dict] = []
         for ft in loaded.get(slug, []):
             try:
                 lon, lat = ft["geometry"]["coordinates"][:2]
             except (KeyError, TypeError, ValueError):
                 continue
-            val = sampled.get(_cell(float(lon), float(lat), grid_deg), {}).get(param)
+            val = grid.get(_cell(float(lon), float(lat)))
             props = dict(ft.get("properties") or {})
             if val is not None:
                 props[prop] = round(val, 3)
@@ -253,4 +252,5 @@ def annotate(*, force: bool = False, grid_deg: float = 1.0,
         files.append(_persist_layer(rel, annotated, s, source=src))
         per[rel] = len(annotated)
 
-    return SitingResult(CACHE_TYPE, sum(per.values()), per, len(cells), False, NASA_POWER_URL, files)
+    cells = sum(len(g) for g in grids.values())
+    return SitingResult(CACHE_TYPE, sum(per.values()), per, cells, False, REGIONAL_URL, files)
