@@ -20,10 +20,12 @@ Data source — **NASA POWER** (https://power.larc.nasa.gov): a free, no-key,
 global point climatology API. ``ALLSKY_SFC_SW_DWN`` is the all-sky surface solar
 irradiance (GHI, kWh/m²/day); ``WS50M`` is the mean wind speed at 50 m (m/s).
 Resource varies smoothly in space, so plant locations are de-duplicated onto a
-coarse grid (default 0.5°) and ONE climatology call is made per unique cell
-(both parameters at once) — a few hundred *sequential* calls inside a single
-cached handler, deliberately **not** a fleet fan-out (the transmission/Overpass
-lesson: a shared egress IP must not fan out a rate-limited API).
+coarse grid (default 1.0°) and ONE climatology call is made per unique cell
+(both parameters at once) — ~2.3k calls at a polite in-process concurrency of 4
+(with 429 retry/backoff) inside a single cached handler. This is bounded
+concurrency, **not** a fleet fan-out: NASA POWER throttles bursts (8-way drew
+mass 429s), so the pool stays small and every cell retries rather than silently
+dropping.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -70,6 +73,16 @@ RESOURCES = [
 _SCORE_LO, _SCORE_HI = 4.0, 8.0  # renderer magnitude ramp endpoints
 
 _lock = threading.Lock()
+_tls = threading.local()
+
+
+def _session():
+    """A per-thread requests.Session (connection reuse; thread-safe by isolation)."""
+    s = getattr(_tls, "session", None)
+    if s is None:
+        s = _tls.session = requests.Session()
+        s.headers.update({"User-Agent": USER_AGENT})
+    return s
 
 
 @dataclass
@@ -99,24 +112,39 @@ def _cell_center(key: tuple[int, int], step: float) -> tuple[float, float]:
     return (round(key[0] * step, 4), round(key[1] * step, 4))
 
 
-def _nasa_power(lat: float, lon: float, params: list[str]) -> dict[str, float]:
-    """One NASA POWER climatology call → {param: ANN value} (skips no-data)."""
+def _nasa_power(lat: float, lon: float, params: list[str], *, max_retries: int = 5) -> dict[str, float]:
+    """One NASA POWER climatology call → {param: ANN value} (skips no-data).
+
+    Retries 429 / 5xx with exponential backoff (honouring ``Retry-After``) so a
+    burst against NASA POWER's rate limit recovers instead of dropping the cell —
+    the failure mode that left 87% of plants unscored on the first concurrent
+    attempt.
+    """
     if requests is None:
         raise RuntimeError("requests not installed")
-    r = requests.get(
-        NASA_POWER_URL,
-        params={"parameters": ",".join(params), "community": "RE",
-                "longitude": lon, "latitude": lat, "format": "JSON"},
-        headers={"User-Agent": USER_AGENT}, timeout=(30, 120),
-    )
-    r.raise_for_status()
-    block = r.json()["properties"]["parameter"]
-    out: dict[str, float] = {}
-    for p in params:
-        ann = (block.get(p) or {}).get("ANN")
-        if ann is not None and float(ann) > _FILL:
-            out[p] = float(ann)
-    return out
+    sess = _session()
+    delay = 1.5
+    for attempt in range(max_retries + 1):
+        r = sess.get(
+            NASA_POWER_URL,
+            params={"parameters": ",".join(params), "community": "RE",
+                    "longitude": lon, "latitude": lat, "format": "JSON"},
+            timeout=(30, 120),
+        )
+        if r.status_code in (429, 500, 502, 503, 504) and attempt < max_retries:
+            wait = r.headers.get("Retry-After")
+            time.sleep(min(float(wait) if wait else delay, 30.0))
+            delay = min(delay * 2, 30.0)
+            continue
+        r.raise_for_status()
+        block = r.json()["properties"]["parameter"]
+        out: dict[str, float] = {}
+        for p in params:
+            ann = (block.get(p) or {}).get("ANN")
+            if ann is not None and float(ann) > _FILL:
+                out[p] = float(ann)
+        return out
+    return {}
 
 
 def _read_layer(rel: str, s: Storage) -> list[dict]:
@@ -150,8 +178,8 @@ def _layer_count(rel: str, s: Storage) -> int:
     return int((side.get("extra") or {}).get("feature_count", 0)) if side else 0
 
 
-def annotate(*, force: bool = False, grid_deg: float = 0.5,
-             max_workers: int = 8, storage: Storage | None = None) -> SitingResult:
+def annotate(*, force: bool = False, grid_deg: float = 1.0,
+             max_workers: int = 4, storage: Storage | None = None) -> SitingResult:
     """Annotate cached solar/wind plants with NASA POWER resource + siting score.
 
     Cache-aware: returns immediately if both annotated layers already exist
