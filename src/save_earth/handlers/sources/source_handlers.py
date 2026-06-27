@@ -186,6 +186,14 @@ def handle_download_power_plants(params: dict[str, Any]) -> dict[str, Any]:
             "layer_count": len(res.per_layer), "source_url": res.source_url}
 
 
+def handle_list_transmission_tiles(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle ListTransmissionTiles — emit the tile list (Json) for the fan-out."""
+    tiles = power.list_tiles()
+    sl = params.get("_step_log")
+    _step_log(sl, f"ListTransmissionTiles: {len(tiles)} tiles")
+    return {"tiles": tiles, "count": len(tiles)}
+
+
 def handle_download_transmission_tile(params: dict[str, Any]) -> dict[str, Any]:
     """Handle DownloadTransmissionTile — ≥500 kV lines for ONE bbox (fan-out leaf)."""
     step_log = params.get("_step_log")
@@ -199,9 +207,9 @@ def handle_download_transmission_tile(params: dict[str, Any]) -> dict[str, Any]:
 def handle_merge_transmission(params: dict[str, Any]) -> dict[str, Any]:
     """Handle MergeTransmission — merge the per-tile line GeoJSONs (dedupe by way id)."""
     step_log = params.get("_step_log")
-    bboxes = params.get("bboxes") or []
-    _step_log(step_log, f"MergeTransmission ({len(bboxes)} tiles)")
-    n = power.merge_transmission(list(bboxes))
+    tiles = params.get("tiles") or power.list_tiles()
+    _step_log(step_log, f"MergeTransmission ({len(tiles)} tiles)")
+    n = power.merge_transmission(list(tiles))
     _step_log(step_log, f"[merge] {n:,} transmission lines ≥500 kV", "success")
     return {"cache_type": power.CACHE_TYPE, "feature_count": n}
 
@@ -319,6 +327,7 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadNuclearReactors": handle_download_nuclear_reactors,
     f"{NAMESPACE}.DownloadEthnicEnclaves": handle_download_ethnic_enclaves,
     f"{NAMESPACE}.DownloadPowerPlants": handle_download_power_plants,
+    f"{NAMESPACE}.ListTransmissionTiles": handle_list_transmission_tiles,
     f"{NAMESPACE}.DownloadTransmissionTile": handle_download_transmission_tile,
     f"{NAMESPACE}.MergeTransmission": handle_merge_transmission,
     f"{NAMESPACE}.DownloadVolcanoes": handle_download_volcanoes,

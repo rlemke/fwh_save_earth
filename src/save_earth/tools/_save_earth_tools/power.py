@@ -70,17 +70,28 @@ _FUEL_BY_WRI = {wri: slug for slug, wri, _, _ in FUELS}
 # voltage tags ("500000;230000") are matched if any component qualifies.
 _VOLT_RE = "[5-9][0-9]{5}|[0-9]{7}"
 # A single global `out geom` query scans every power=line worldwide and 504s, so
-# tile by continent (S,W,N,E) — each scan is bounded and merges/dedupes by way id.
+# tile by region (S,W,N,E). The dense continents (N.America, Europe, Asia) are the
+# 504 risk, so they're split further — finer tiles fail less and retry per-tile.
+# (Going to per-country granularity wouldn't be FASTER: the fleet shares one
+# egress IP and Overpass rate-limits ~2 concurrent queries/IP, so the fan-out is
+# throttled by Overpass regardless of width — finer is about reliability, not
+# throughput. This ~16-tile grid avoids the giant-query timeouts without firing a
+# 250-task retry-storm at Overpass's 2-slot limit.)
 TRANSMISSION_BBOXES = [
-    (10, -170, 75, -48),    # North + Central America
-    (-58, -85, 14, -32),    # South America
-    (34, -28, 72, 42),      # Europe
-    (-37, -20, 38, 55),     # Africa
-    (3, 42, 45, 90),        # West / Central / South Asia
-    (3, 90, 55, 150),       # East / SE Asia
-    (45, 42, 78, 180),      # North Asia (Russia)
-    (-48, 110, 2, 180),     # Oceania
+    (10, -170, 50, -100), (10, -100, 50, -48), (48, -170, 75, -48),   # N/Central America (W, E, far N)
+    (-58, -85, 14, -32),                                              # South America
+    (34, -28, 56, 10), (34, 10, 56, 42), (56, -28, 72, 42),           # Europe (W, E, N)
+    (10, -20, 38, 25), (-37, -20, 10, 25), (-37, 25, 38, 55),         # Africa (NW, SW, E)
+    (3, 42, 45, 75), (3, 75, 45, 100),                                # W/Central + South Asia
+    (3, 100, 35, 150), (35, 90, 55, 150),                             # SE + E Asia
+    (45, 42, 78, 180),                                                # North Asia (Russia)
+    (-48, 110, 3, 180),                                               # Oceania
 ]
+
+
+def list_tiles() -> list[str]:
+    """The transmission tiles as "S,W,N,E" strings (for the fan-out foreach)."""
+    return [",".join(str(v) for v in bb) for bb in TRANSMISSION_BBOXES]
 
 _lock = threading.Lock()
 

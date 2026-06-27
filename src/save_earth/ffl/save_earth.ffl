@@ -204,6 +204,13 @@ namespace save_earth.sources {
         source_url: String
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
+    /** Emit the list of tiles ("S,W,N,E" bbox strings) the ≥500 kV transmission
+      * fan-out spreads over (dense continents split so no single query 504s). */
+    event facet ListTransmissionTiles() => (
+        tiles: Json,
+        count: Int
+    ) with Effect(kind = "pure") with Cost(tier = "free")
+
     /** Fetch ≥500 kV transmission lines for ONE bounding box ("S,W,N,E") from
       * OSM, cached as a per-tile GeoJSON. A single global query 504s, so the
       * world is tiled and these tiles run in PARALLEL (ScanTransmissionTiles). */
@@ -214,15 +221,17 @@ namespace save_earth.sources {
         feature_count: Int
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate") with Timeout(minutes = 15)
 
-    /** Fan out the ≥500 kV transmission fetch across continental bounding boxes —
-      * one DownloadTransmissionTile per bbox, in parallel across the fleet, so a
-      * region that times out retries on its own without sinking the whole fetch. */
-    event facet ScanTransmissionTiles(
-        bboxes: [String]
+    /** Fan out the ≥500 kV transmission fetch across the tiles — one
+      * DownloadTransmissionTile per tile, in parallel across the fleet, so a
+      * region that times out retries on its own without sinking the whole fetch.
+      * (A `workflow` with a foreach body — not an `event facet` — so the runtime
+      * runs the fan-out rather than waiting for a handler.) */
+    workflow ScanTransmissionTiles(
+        tiles: Json
     ) => (
         count: Int
-    ) andThen foreach bbox in $.bboxes {
-        tile = DownloadTransmissionTile(bbox = $.bbox)
+    ) andThen foreach tile in $.tiles {
+        t = DownloadTransmissionTile(bbox = $.tile)
         yield ScanTransmissionTiles(count = 1)
     }
 
@@ -230,7 +239,7 @@ namespace save_earth.sources {
       * lines that cross a tile border by OSM way id. ``dependency_signal``
       * sequences this strictly after the tile fan-out completes. */
     event facet MergeTransmission(
-        bboxes: [String],
+        tiles: Json,
         dependency_signal: Int = 0
     ) => (
         cache_type: String,
@@ -620,7 +629,6 @@ namespace save_earth.workflows {
       * layers, plus a ≥500 kV transmission-line layer (OSM). Each layer has no
       * curated field list, so clicking any plant or line shows its full record. */
     workflow BuildPowerMap(
-        bboxes: [String] = ["10,-170,75,-48", "-58,-85,14,-32", "34,-28,72,42", "-37,-20,38,55", "3,42,45,90", "3,90,55,150", "45,42,78,180", "-48,110,2,180"],
         center_lat: Double = 25.0,
         center_lon: Double = 5.0,
         zoom: Double = 1.6
@@ -628,10 +636,13 @@ namespace save_earth.workflows {
         plants = DownloadPowerPlants() catch {
             yield BuildPowerMap(status = "failed", html_path = "", detail = "power plant download failed")
         }
-        scan = ScanTransmissionTiles(bboxes = $.bboxes) catch {
+        tiles = ListTransmissionTiles() catch {
+            yield BuildPowerMap(status = "failed", html_path = "", detail = "tile list failed")
+        }
+        scan = ScanTransmissionTiles(tiles = tiles.tiles) catch {
             yield BuildPowerMap(status = "failed", html_path = "", detail = "transmission tile fan-out failed")
         }
-        merge = MergeTransmission(bboxes = $.bboxes, dependency_signal = scan.count) catch {
+        merge = MergeTransmission(tiles = tiles.tiles, dependency_signal = scan.count) catch {
             yield BuildPowerMap(status = "failed", html_path = "", detail = "transmission merge failed")
         }
         map = BuildMap(
