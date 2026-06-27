@@ -256,10 +256,11 @@ def _line_features(els: list[dict]) -> list[dict]:
         g = el.get("geometry")
         if not g or len(g) < 2:
             continue
-        line = LineString([(p["lon"], p["lat"]) for p in g]).simplify(0.02, preserve_topology=False)
+        line = LineString([(p["lon"], p["lat"]) for p in g]).simplify(0.05, preserve_topology=False)
         if line.is_empty or line.length == 0:
             continue
         gj = mapping(line)
+        gj = {"type": gj["type"], "coordinates": _rnd(gj["coordinates"], 2)}
         props = dict(el.get("tags") or {})
         props["osm_id"] = el.get("id")
         props["osm_url"] = f"https://www.openstreetmap.org/way/{el.get('id')}"
