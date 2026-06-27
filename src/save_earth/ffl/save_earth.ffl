@@ -664,7 +664,7 @@ namespace save_earth.workflows {
             only_layers = "power-*",
             attribution_workflow = "save_earth.workflows.BuildPowerMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "World power infrastructure: power plants by source (hydro/dams, coal, solar, wind, nuclear) from the WRI Global Power Plant Database, plus the major transmission backbone from OpenStreetMap. NOTE: only the highest-voltage (>=500 kV) lines are shown, so a line often looks like it just 'ends' in mid-air - that is where it steps down to the lower-voltage (400/230 kV) lines that are not shown but carry the power the rest of the way to substations and cities. (OSM also has no plant-to-substation linkage at world scale.) Toggle each source in the legend; click any plant or line for its full record. Cached: re-runs reuse the cache unless force=true."
+            description = "World power infrastructure: power plants by source (hydro/dams, coal, natural gas, solar, wind, nuclear) from the WRI Global Power Plant Database, plus the major transmission backbone from OpenStreetMap. NOTE: only the highest-voltage (>=500 kV) lines are shown, so a line often looks like it just 'ends' in mid-air - that is where it steps down to the lower-voltage (400/230 kV) lines that are not shown but carry the power the rest of the way to substations and cities. (OSM also has no plant-to-substation linkage at world scale.) Toggle each source in the legend; click any plant or line for its full record. Cached: re-runs reuse the cache unless force=true."
         ) catch {
             yield BuildPowerMap(status = "failed", html_path = "", detail = "map build failed")
         }
