@@ -15,8 +15,8 @@ Usage::
 
 Requires (set for Docker/MongoDB mode)::
 
-    AFL_MONGODB_URL=mongodb://localhost:27017
-    AFL_MONGODB_DATABASE=facetwork
+    FW_MONGODB_URL=mongodb://localhost:27017
+    FW_MONGODB_DATABASE=facetwork
 """
 
 from __future__ import annotations

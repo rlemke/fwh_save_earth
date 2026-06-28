@@ -64,8 +64,8 @@ Feature popups preserve the upstream `properties` so every point carries a real 
 
 ## Cache layout
 
-All outputs live at `$AFL_CACHE_ROOT/save-earth/` on whichever backend
-`AFL_STORAGE` selects — `local` (default: `/Volumes/afl_data/cache/save-earth/`),
+All outputs live at `$FW_CACHE_ROOT/save-earth/` on whichever backend
+`FW_STORAGE` selects — `local` (default: `/Volumes/afl_data/cache/save-earth/`),
 `hdfs`, or `s3` (the fleet MinIO, `s3://afl-cache/cache/save-earth/`). Downloads
 always stage to local disk and finalize onto the active backend, so an object
 store works with no shared filesystem:
@@ -99,7 +99,7 @@ cache/save-earth/
 ./tools/download-epa-cleanups.sh   --use-mock
 ./tools/build-save-earth-map.sh
 
-open "$AFL_CACHE_ROOT/save-earth/maps/global/index.html"
+open "$FW_CACHE_ROOT/save-earth/maps/global/index.html"
 ```
 
 **Real data, global overview:**
@@ -150,7 +150,7 @@ The HTML page ships with:
 | Module | Role |
 |--------|------|
 | `sidecar.py` | Per-entry `.meta.json` read/write, per-entry locking |
-| `storage.py` | LocalStorage / HdfsStorage / **S3Storage** abstraction (`get_storage()` selects by `AFL_STORAGE`) + root-path derivation. S3Storage delegates to `facetwork.runtime.storage.S3StorageBackend` (the fleet MinIO) with a local read-through cache (`localize()`). |
+| `storage.py` | LocalStorage / HdfsStorage / **S3Storage** abstraction (`get_storage()` selects by `FW_STORAGE`) + root-path derivation. S3Storage delegates to `facetwork.runtime.storage.S3StorageBackend` (the fleet MinIO) with a local read-through cache (`localize()`). |
 | `openlittermap.py` | OpenLitterMap fetch + cache + GeoJSON normalization (supports `clusters` and `points` modes; modes/zoom/bbox each cache in their own entry) |
 | `epa_cleanups.py` | EPA Superfund / Brownfield fetch via `geopub.epa.gov/EMEF/efpoints` MapServer — auto-paginates past the 10 k-record server cap |
 | `nuclear.py` | OSM nuclear-power fetch via Overpass (reactors + plants, polygons centroided) — keeps every tag verbatim as the feature's properties |

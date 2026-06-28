@@ -43,12 +43,12 @@ datasets into an interactive map:
   `BuildPowerMap` (plants by fuel + ≥500 kV transmission) download in parallel
   (with `catch` blocks for graceful partial failure) and chain into the map
   build.
-- **Storage** — caches + map outputs follow `AFL_STORAGE`: `local`, `hdfs`, or
+- **Storage** — caches + map outputs follow `FW_STORAGE`: `local`, `hdfs`, or
   `s3` (the fleet MinIO). Downloads stage locally and finalize onto the active
   backend, so an object store needs no shared filesystem.
 
 The CLI tools in `src/save_earth/tools/` and the FFL handlers share one
-`_save_earth_tools/` implementation and one on-disk cache (`$AFL_DATA_ROOT/cache/save-earth/`)
+`_save_earth_tools/` implementation and one on-disk cache (`$FW_DATA_ROOT/cache/save-earth/`)
 — the terminal and the runtime are two surfaces onto the same data.
 
 Discovered by the Facetwork runner via the `facetwork.examples` entry point

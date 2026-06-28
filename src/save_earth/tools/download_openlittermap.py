@@ -7,7 +7,7 @@ OpenLitterMap's public API has two GeoJSON endpoints:
   requires ``zoom >= 15`` AND a bbox (server-enforced).
 
 Outputs land at
-``$AFL_CACHE_ROOT/save-earth/openlittermap/<mode>-zoom<N>[_<bbox>].geojson``
+``$FW_CACHE_ROOT/save-earth/openlittermap/<mode>-zoom<N>[_<bbox>].geojson``
 plus a sibling ``.meta.json`` sidecar.
 
 Usage::

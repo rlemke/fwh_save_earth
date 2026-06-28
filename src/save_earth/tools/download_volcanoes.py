@@ -6,9 +6,9 @@ carries a ``wikidata`` or ``wikipedia`` tag (encyclopedic notability as the
 verbatim as the feature's properties, so a downstream map popup can surface all
 available information. Output lands at::
 
-    $AFL_CACHE_ROOT/save-earth/volcanoes/volcanoes.geojson + .meta.json
+    $FW_CACHE_ROOT/save-earth/volcanoes/volcanoes.geojson + .meta.json
 
-on whichever backend ``AFL_STORAGE`` selects (``local`` / ``hdfs`` / ``s3``).
+on whichever backend ``FW_STORAGE`` selects (``local`` / ``hdfs`` / ``s3``).
 Coverage and tag completeness are OSM-community-driven and vary by region.
 
 Usage::
@@ -23,7 +23,7 @@ Usage::
     python download_volcanoes.py --use-mock
 
     # Write to the fleet object store
-    AFL_STORAGE=s3 python download_volcanoes.py
+    FW_STORAGE=s3 python download_volcanoes.py
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ def main() -> int:
     parser.add_argument(
         "--backend",
         default=None,
-        help="Storage backend override (local/hdfs/s3). Default: $AFL_STORAGE.",
+        help="Storage backend override (local/hdfs/s3). Default: $FW_STORAGE.",
     )
     parser.add_argument(
         "--use-mock",

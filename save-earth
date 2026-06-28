@@ -108,8 +108,8 @@ _help() {
   echo "WORKFLOWS (run on the Facetwork runtime; dashboard-visible)"
   _list_workflows
   echo
-  echo "Storage: prefix tool runs with AFL_STORAGE=s3 AFL_DATA_ROOT=s3://afl-cache"
-  echo "  AFL_S3_ENDPOINT=http://afl-minio:9000 (… ACCESS_KEY/SECRET_KEY) to use the fleet cache."
+  echo "Storage: prefix tool runs with FW_STORAGE=s3 FW_DATA_ROOT=s3://afl-cache"
+  echo "  FW_S3_ENDPOINT=http://afl-minio:9000 (… ACCESS_KEY/SECRET_KEY) to use the fleet cache."
 }
 
 cmd="${1:-help}"

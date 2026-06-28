@@ -5,7 +5,7 @@
 // dispatchers that import from _save_earth_tools/ via a sys.path shim.
 // The runtime and the
 // terminal produce identical outputs and share the cache rooted at
-// ``$AFL_CACHE_ROOT/save-earth/``.
+// ``$FW_CACHE_ROOT/save-earth/``.
 //
 // Data sources covered in this pass:
 //   - OpenLitterMap (crowd-sourced geotagged litter observations)

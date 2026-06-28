@@ -5,16 +5,16 @@ Fetches the USGS real-time GeoJSON feed (default: magnitude 4.5+ over the past
 verbatim (``mag``, ``place``, ``time``, ``magType``, ``tsunami``, …) plus a
 derived ``depth_km``. Output lands at::
 
-    $AFL_CACHE_ROOT/save-earth/earthquakes/earthquakes.geojson + .meta.json
+    $FW_CACHE_ROOT/save-earth/earthquakes/earthquakes.geojson + .meta.json
 
-on whichever backend ``AFL_STORAGE`` selects (``local`` / ``hdfs`` / ``s3``).
+on whichever backend ``FW_STORAGE`` selects (``local`` / ``hdfs`` / ``s3``).
 
 Usage::
 
     python download_earthquakes.py            # live USGS fetch (default)
     python download_earthquakes.py --force     # re-download even if cached
     python download_earthquakes.py --use-mock  # offline mock data for tests
-    AFL_STORAGE=s3 python download_earthquakes.py
+    FW_STORAGE=s3 python download_earthquakes.py
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ def main() -> int:
     parser.add_argument(
         "--backend",
         default=None,
-        help="Storage backend override (local/hdfs/s3). Default: $AFL_STORAGE.",
+        help="Storage backend override (local/hdfs/s3). Default: $FW_STORAGE.",
     )
     parser.add_argument(
         "--use-mock",

@@ -7,9 +7,9 @@ enclave — "Chinatown", "Japantown", "Little Italy", "Koreatown", "Little Saigo
 *name* is the signal. Each match is classified into a heritage bucket and written
 to one GeoJSON FeatureCollection per heritage::
 
-    $AFL_CACHE_ROOT/save-earth/enclaves/<slug>.geojson + .meta.json
+    $FW_CACHE_ROOT/save-earth/enclaves/<slug>.geojson + .meta.json
 
-on whichever backend ``AFL_STORAGE`` selects (``local`` / ``hdfs`` / ``s3``).
+on whichever backend ``FW_STORAGE`` selects (``local`` / ``hdfs`` / ``s3``).
 Coverage is OSM-community-driven and uneven (rich in US/European metros), and
 name-matching admits the odd false positive — honest limits of an open source.
 
@@ -18,7 +18,7 @@ Usage::
     python download_enclaves.py                 # live Overpass fetch
     python download_enclaves.py --force          # re-download even if cached
     python download_enclaves.py --use-mock       # offline mock data for tests
-    AFL_STORAGE=s3 python download_enclaves.py    # write to the fleet object store
+    FW_STORAGE=s3 python download_enclaves.py    # write to the fleet object store
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ def main() -> int:
     parser.add_argument(
         "--backend",
         default=None,
-        help="Storage backend override (local/hdfs/s3). Default: $AFL_STORAGE.",
+        help="Storage backend override (local/hdfs/s3). Default: $FW_STORAGE.",
     )
     parser.add_argument(
         "--use-mock",

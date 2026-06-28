@@ -9,7 +9,7 @@ lock for the rare case of two writers replacing the same key.
 
 Layout (see ``agent-spec/cache-layout.agent-spec.yaml``)::
 
-    AFL_DATA_ROOT/
+    FW_DATA_ROOT/
       cache/<namespace>/<cache_type>/<relative_path>
       cache/<namespace>/<cache_type>/<relative_path>.meta.json
       staging/<namespace>/<cache_type>/<relative_path>.stage-<tag>
@@ -48,7 +48,7 @@ SIDECAR_SUFFIX = ".meta.json"
 
 
 def _storage(storage: Storage | None) -> Storage:
-    # Default to the AFL_STORAGE-selected backend (local/hdfs/s3) so sidecar
+    # Default to the FW_STORAGE-selected backend (local/hdfs/s3) so sidecar
     # writes land alongside their artifact on the active backend, not always
     # local. LocalStorage stays imported for the isinstance() branches below.
     return storage if storage is not None else get_storage()

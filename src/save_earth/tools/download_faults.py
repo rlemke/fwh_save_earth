@@ -4,16 +4,16 @@ Fetches the Peter Bird (2002) ``PB2002`` plate-boundary GeoJSON (LineString
 features) and caches it verbatim. Plate boundaries are the world-scale fault
 systems along which earthquakes cluster. Output lands at::
 
-    $AFL_CACHE_ROOT/save-earth/faults/faults.geojson + .meta.json
+    $FW_CACHE_ROOT/save-earth/faults/faults.geojson + .meta.json
 
-on whichever backend ``AFL_STORAGE`` selects (``local`` / ``hdfs`` / ``s3``).
+on whichever backend ``FW_STORAGE`` selects (``local`` / ``hdfs`` / ``s3``).
 
 Usage::
 
     python download_faults.py            # live fetch (default)
     python download_faults.py --force     # re-download even if cached
     python download_faults.py --use-mock  # offline mock data for tests
-    AFL_STORAGE=s3 python download_faults.py
+    FW_STORAGE=s3 python download_faults.py
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ def main() -> int:
     parser.add_argument(
         "--backend",
         default=None,
-        help="Storage backend override (local/hdfs/s3). Default: $AFL_STORAGE.",
+        help="Storage backend override (local/hdfs/s3). Default: $FW_STORAGE.",
     )
     parser.add_argument(
         "--use-mock",

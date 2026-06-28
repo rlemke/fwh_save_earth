@@ -2,7 +2,7 @@
 
 Reads from the per-source caches the downloaders populate and produces
 one ``index.html`` at
-``$AFL_CACHE_ROOT/save-earth/maps/<region>/index.html`` with per-source
+``$FW_CACHE_ROOT/save-earth/maps/<region>/index.html`` with per-source
 layer toggles and click popups that surface each feature's upstream
 ``properties`` (name, description, status, etc.).
 
@@ -211,7 +211,7 @@ def main() -> int:
     parser.add_argument(
         "--backend",
         default=None,
-        help="Storage backend override (local/hdfs/s3). Default: $AFL_STORAGE.",
+        help="Storage backend override (local/hdfs/s3). Default: $FW_STORAGE.",
     )
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()

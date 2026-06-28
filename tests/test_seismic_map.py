@@ -13,8 +13,8 @@ import pytest
 
 @pytest.fixture()
 def local_storage(tmp_path, monkeypatch):
-    monkeypatch.setenv("AFL_STORAGE", "local")
-    monkeypatch.setenv("AFL_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv("FW_STORAGE", "local")
+    monkeypatch.setenv("FW_DATA_ROOT", str(tmp_path))
     # The tools cache the get_storage() singleton lazily off the env, so import
     # inside the test (after the env is set) — see the other source modules.
     yield tmp_path

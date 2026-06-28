@@ -5,7 +5,7 @@ Fetches the TRI_FACILITY table from
 ``enviro.epa.gov`` URL 301-redirects there). Paginates transparently
 past the 10,000-row per-request cap. Output lands at::
 
-    $AFL_CACHE_ROOT/save-earth/tri/facilities.geojson + .meta.json
+    $FW_CACHE_ROOT/save-earth/tri/facilities.geojson + .meta.json
 
 Longitude is stored unsigned in the TRI database — the download
 library negates for western-hemisphere US/territory codes so the

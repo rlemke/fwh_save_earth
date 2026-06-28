@@ -18,8 +18,8 @@ import pytest
 
 @pytest.fixture()
 def local_storage(tmp_path, monkeypatch):
-    monkeypatch.setenv("AFL_STORAGE", "local")
-    monkeypatch.setenv("AFL_DATA_ROOT", str(tmp_path))
+    monkeypatch.setenv("FW_STORAGE", "local")
+    monkeypatch.setenv("FW_DATA_ROOT", str(tmp_path))
     yield tmp_path
 
 

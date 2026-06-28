@@ -7,7 +7,7 @@ package). It is shared verbatim by:
 - the FFL handlers in this package.
 
 Both entry points read and write the same on-disk cache
-(``$AFL_DATA_ROOT/cache/save-earth/...``) with per-entry
+(``$FW_DATA_ROOT/cache/save-earth/...``) with per-entry
 ``.meta.json`` sidecars — the tool and the FFL are two surfaces onto
 one cache.
 

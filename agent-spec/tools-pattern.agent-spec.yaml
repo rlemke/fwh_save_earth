@@ -264,7 +264,7 @@ tests:
 
   offline_requirement: |
     The full suite must pass with NO network and NO MongoDB. CI uses
-    `use_mock=True` or `AFL_DATA_ROOT=$TMPDIR` + deterministic mocks
+    `use_mock=True` or `FW_DATA_ROOT=$TMPDIR` + deterministic mocks
     from `_<pkg>_tools/<domain>_mocks.py`. Tests that legitimately need live
     services are marked with `@pytest.mark.integration` and excluded
     from the default run.
@@ -274,7 +274,7 @@ tests:
       Tests that monkey-patch module-level globals (e.g. `HAS_REQUESTS`,
       `_CACHE_DIR`) are brittle — they couple tests to implementation
       internals that don't exist in a refactor. Prefer env-var overrides
-      (`AFL_DATA_ROOT`) and explicit `use_mock=True` kwargs.
+      (`FW_DATA_ROOT`) and explicit `use_mock=True` kwargs.
 
 # ---------------------------------------------------------------------------
 # Creating a new domain example.
@@ -306,7 +306,7 @@ new_domain_checklist:
 
   step_5_tests:
     - "pytest must pass offline (testpaths: repo-root tests/ + src/<import_pkg>/handlers)."
-    - "Tests set AFL_DATA_ROOT=tmp_path and pass use_mock=True — do NOT monkey-patch _<pkg>_tools internals."
+    - "Tests set FW_DATA_ROOT=tmp_path and pass use_mock=True — do NOT monkey-patch _<pkg>_tools internals."
     - "Add smoke tests for every CLI (import + --help exit 0)."
 
   step_6_docs:

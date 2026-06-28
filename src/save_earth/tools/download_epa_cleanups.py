@@ -1,7 +1,7 @@
 """Download EPA cleanup-site datasets (Superfund / Brownfields / RCRA).
 
 Each dataset lands at
-``$AFL_CACHE_ROOT/save-earth/epa-cleanups/<dataset>.geojson`` with a
+``$FW_CACHE_ROOT/save-earth/epa-cleanups/<dataset>.geojson`` with a
 sibling ``.meta.json`` sidecar.
 
 Usage::

@@ -25,7 +25,7 @@ purpose: |
 # ---------------------------------------------------------------------------
 roots:
   data_root:
-    env_var: "AFL_DATA_ROOT"
+    env_var: "FW_DATA_ROOT"
     defaults:
       local: "/Volumes/afl_data"
       hdfs: "/user/afl"
@@ -33,24 +33,24 @@ roots:
 
   derived:
     cache_root:
-      path: "AFL_DATA_ROOT/cache"
-      env_var_override: "AFL_CACHE_ROOT"
+      path: "FW_DATA_ROOT/cache"
+      env_var_override: "FW_CACHE_ROOT"
       purpose: "Durable cached artifacts. Safe to delete per-entry; re-derivable from source."
     staging_root:
-      path: "AFL_DATA_ROOT/staging"
-      env_var_override: "AFL_STAGING_ROOT"
+      path: "FW_DATA_ROOT/staging"
+      env_var_override: "FW_STAGING_ROOT"
       purpose: "In-flight downloads and builds. Atomically renamed into cache_root on success."
     tmp_root:
-      path: "AFL_DATA_ROOT/tmp"
-      env_var_override: "AFL_TMP_ROOT"
+      path: "FW_DATA_ROOT/tmp"
+      env_var_override: "FW_TMP_ROOT"
       purpose: "Scratch working area. Safe to wipe at any time."
     indexes_root:
-      path: "AFL_DATA_ROOT/_indexes"
-      env_var_override: "AFL_INDEXES_ROOT"
+      path: "FW_DATA_ROOT/_indexes"
+      env_var_override: "FW_INDEXES_ROOT"
       purpose: "Lazy, rebuildable cache-type indexes. Never authoritative."
     locks_root:
-      path: "AFL_DATA_ROOT/locks"
-      env_var_override: "AFL_LOCKS_ROOT"
+      path: "FW_DATA_ROOT/locks"
+      env_var_override: "FW_LOCKS_ROOT"
       purpose: "Per-entry fcntl lock targets. Only created for same-entry overwrite contention."
 
 # ---------------------------------------------------------------------------
@@ -133,7 +133,7 @@ sidecar:
 # ---------------------------------------------------------------------------
 write_protocol:
   happy_path:
-    - "Writer computes destination cache path D and staging path S under AFL_STAGING_ROOT with the same relative layout."
+    - "Writer computes destination cache path D and staging path S under FW_STAGING_ROOT with the same relative layout."
     - "Writer creates parent directories under staging_root."
     - "Writer downloads or builds into S (streaming, no memory buffer required)."
     - "Writer computes sha256 and size; constructs sidecar dict."
@@ -150,7 +150,7 @@ write_protocol:
   same_entry_contention:
     description: "Two writers attempting to replace the same entry at the same time. Rare — typically a retry or a forced re-download."
     protocol:
-      - "Writer takes an fcntl exclusive lock on AFL_LOCKS_ROOT/<namespace>/<cache_type>/<relative_path>.lock."
+      - "Writer takes an fcntl exclusive lock on FW_LOCKS_ROOT/<namespace>/<cache_type>/<relative_path>.lock."
       - "Lock is created on demand. The locks_root tree is NEVER read as cache state — it only coordinates writers."
       - "After rename + sidecar write, the lock is released. The lock file itself is left in place (no unlink race)."
     rationale: "Locking only when two writers want the same key keeps the common case (N writers, N different keys) fully lock-free."
@@ -175,7 +175,7 @@ read_protocol:
       description: "Walk the cache_type directory and collect all *.meta.json files. Parse each."
       cost: "O(N) directory listings plus N small file reads. Fine up to ~10k entries."
     option_b_index:
-      description: "Read AFL_INDEXES_ROOT/<namespace>/<cache_type>.index.json (lazy). If any sidecar mtime is newer than the index mtime, rebuild the index."
+      description: "Read FW_INDEXES_ROOT/<namespace>/<cache_type>.index.json (lazy). If any sidecar mtime is newer than the index mtime, rebuild the index."
       cost: "O(1) read in the common case. O(N) rebuild when stale."
       rebuild_trigger: "Explicit call to rebuild_index(namespace, cache_type), or readers that encounter a stale index. Rebuild itself is idempotent and safe to run concurrently from multiple servers (last-writer-wins on the index file)."
 
@@ -185,7 +185,7 @@ read_protocol:
 # Index files.
 # ---------------------------------------------------------------------------
 indexes:
-  path: "AFL_INDEXES_ROOT/<namespace>/<cache_type>.index.json"
+  path: "FW_INDEXES_ROOT/<namespace>/<cache_type>.index.json"
   status: "non-authoritative cache. Never used for correctness. Safe to delete."
   shape:
     top_level:
@@ -197,7 +197,7 @@ indexes:
   rebuild_algorithm:
     - "Walk cache_root/<namespace>/<cache_type>/ collecting *.meta.json."
     - "Parse each; build entries map."
-    - "write_text_atomic to AFL_INDEXES_ROOT/<namespace>/<cache_type>.index.json."
+    - "write_text_atomic to FW_INDEXES_ROOT/<namespace>/<cache_type>.index.json."
   staleness_check: "Compare index mtime against newest *.meta.json mtime under the cache_type subtree. Rebuild if any sidecar is newer."
 
 # ---------------------------------------------------------------------------
@@ -205,7 +205,7 @@ indexes:
 # ---------------------------------------------------------------------------
 locks:
   when_used: "Only when a writer wants to OVERWRITE an existing entry. New-entry writes never acquire a lock."
-  path: "AFL_LOCKS_ROOT/<namespace>/<cache_type>/<relative_path>.lock"
+  path: "FW_LOCKS_ROOT/<namespace>/<cache_type>/<relative_path>.lock"
   backend:
     local: "fcntl.flock LOCK_EX."
     hdfs: "no-op. HDFS assumes single-writer for overwrites in v1."
@@ -323,7 +323,7 @@ dependencies:
 # ---------------------------------------------------------------------------
 implementation_notes: |
   Greenfield — no migration from the existing
-  AFL_OSM_CACHE_ROOT/<cache_type>/manifest.json layout. Tools will be
+  FW_OSM_CACHE_ROOT/<cache_type>/manifest.json layout. Tools will be
   rewritten against the new layout and the old /Volumes/afl_data/osm
   tree is expected to be re-downloaded fresh into
   /Volumes/afl_data/cache/osm.
