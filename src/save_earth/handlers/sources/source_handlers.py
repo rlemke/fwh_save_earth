@@ -389,13 +389,30 @@ def handle_download_fabs_for_country(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def handle_merge_fabs(params: dict[str, Any]) -> dict[str, Any]:
-    """Handle MergeFabs — merge per-country fab GeoJSON into the world layer."""
-    parts = params.get("parts") or []
+def handle_download_fabs_wikidata(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadFabsWikidata — all geocoded fabs from Wikidata (one SPARQL)."""
+    force = bool(params.get("force", False))
     step_log = params.get("_step_log")
-    res = semiconductor.merge_fabs(list(parts))
+    res = semiconductor.download_fabs_wikidata(force=force)
+    status = "cache" if res.was_cached else "download"
+    _step_log(step_log, f"[{status}] wikidata → {res.feature_count} fab(s)", "success")
+    return {
+        "relative_path": res.relative_path,
+        "feature_count": res.feature_count,
+        "was_cached": res.was_cached,
+    }
+
+
+def handle_merge_fabs(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle MergeFabs — merge per-country OSM fabs (+ optional Wikidata) into the layer."""
+    parts = params.get("parts") or []
+    wikidata_path = params.get("wikidata_path", "") or ""
+    step_log = params.get("_step_log")
+    res = semiconductor.merge_fabs(list(parts), wikidata_path)
     _step_log(
-        step_log, f"MergeFabs → {res.feature_count} fabs / {res.country_count} countries", "success"
+        step_log,
+        f"MergeFabs → {res.feature_count} fabs / {res.country_count} OSM countries",
+        "success",
     )
     return {
         "relative_path": res.relative_path,
@@ -411,6 +428,7 @@ def handle_merge_fabs(params: dict[str, Any]) -> dict[str, Any]:
 _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.ListFabCountries": handle_list_fab_countries,
     f"{NAMESPACE}.DownloadFabsForCountry": handle_download_fabs_for_country,
+    f"{NAMESPACE}.DownloadFabsWikidata": handle_download_fabs_wikidata,
     f"{NAMESPACE}.MergeFabs": handle_merge_fabs,
     f"{NAMESPACE}.DownloadOpenLitterMap": handle_download_openlittermap,
     f"{NAMESPACE}.DownloadEpaCleanups": handle_download_epa_cleanups,

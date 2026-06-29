@@ -19,8 +19,12 @@ def test_to_feature_keeps_all_tags_for_popup():
         "type": "way",
         "id": 42,
         "center": {"lat": 24.77, "lon": 120.99},
-        "tags": {"name": "Fab 12", "operator": "TSMC", "industrial": "semiconductor",
-                 "product": "integrated_circuit"},
+        "tags": {
+            "name": "Fab 12",
+            "operator": "TSMC",
+            "industrial": "semiconductor",
+            "product": "integrated_circuit",
+        },
     }
     feat = S._to_feature(el)
     assert feat["geometry"] == {"type": "Point", "coordinates": [120.99, 24.77]}
@@ -60,12 +64,98 @@ def test_persist_and_merge_round_trip(tmp_path, monkeypatch):
     st = get_storage()
     for iso, lat, lon in (("TW", 24.0, 121.0), ("KR", 37.0, 127.0)):
         feat = S._to_feature(
-            {"type": "node", "id": int(lat), "lat": lat, "lon": lon,
-             "tags": {"name": iso, "industrial": "semiconductor"}}
+            {
+                "type": "node",
+                "id": int(lat),
+                "lat": lat,
+                "lon": lon,
+                "tags": {"name": iso, "industrial": "semiconductor"},
+            }
         )
         body = json.dumps({"type": "FeatureCollection", "features": [feat]}).encode()
-        S._persist(f"by-country/{iso}.geojson", body, st, source_url="x",
-                   extra={"feature_count": 1})
+        S._persist(
+            f"by-country/{iso}.geojson", body, st, source_url="x", extra={"feature_count": 1}
+        )
     res = S.merge_fabs(["by-country/TW.geojson", "by-country/KR.geojson"], storage=st)
     assert res.feature_count == 2 and res.country_count == 2
     assert res.relative_path == "fabs.geojson"
+
+
+def test_wikidata_parse_dedupes_by_item_and_keeps_fields():
+    """Multi-valued SPARQL rows for one item collapse to one Point with the
+    structured popup fields + provenance."""
+    ent = "http://www.wikidata.org/entity/Q1"
+    bindings = [
+        {
+            "item": {"value": ent},
+            "itemLabel": {"value": "TSMC Fab"},
+            "coord": {"value": "Point(121.0 24.0)"},
+            "operatorLabel": {"value": "TSMC"},
+        },
+        {
+            "item": {"value": ent},
+            "itemLabel": {"value": "TSMC Fab"},
+            "coord": {"value": "Point(121.0 24.0)"},
+            "operatorLabel": {"value": "TSMC Co"},
+        },
+    ]
+    feats = S._wikidata_to_features(bindings)
+    assert len(feats) == 1
+    p = feats[0]["properties"]
+    assert p["source"] == "wikidata" and p["name"] == "TSMC Fab" and p["wikidata_id"] == "Q1"
+    assert feats[0]["geometry"]["coordinates"] == [121.0, 24.0]
+
+
+def test_merge_unions_osm_and_wikidata_with_spatial_dedupe(tmp_path, monkeypatch):
+    """Combined merge keeps OSM-only + Wikidata fabs and drops an OSM fab that
+    co-locates (~1km) with a Wikidata one, preferring Wikidata."""
+    import json
+
+    monkeypatch.setenv("FW_STORAGE", "local")
+    monkeypatch.setenv("FW_DATA_ROOT", str(tmp_path))
+    from _save_earth_tools.storage import get_storage
+
+    st = get_storage()
+    wd = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [121.0, 24.0]},
+            "properties": {"source": "wikidata", "name": "WD fab"},
+        }
+    ]
+    S._persist(
+        "wikidata.geojson",
+        json.dumps({"type": "FeatureCollection", "features": wd}).encode(),
+        st,
+        source_url="x",
+        extra={"feature_count": 1},
+    )
+    osm = [
+        S._to_feature(
+            {
+                "type": "node",
+                "id": 1,
+                "lat": 24.001,
+                "lon": 121.001,
+                "tags": {"name": "dupe", "industrial": "semiconductor"},
+            }
+        ),  # ~same spot
+        S._to_feature(
+            {
+                "type": "node",
+                "id": 2,
+                "lat": 1.0,
+                "lon": 1.0,
+                "tags": {"name": "unique", "industrial": "semiconductor"},
+            }
+        ),
+    ]
+    S._persist(
+        "by-country/XX.geojson",
+        json.dumps({"type": "FeatureCollection", "features": osm}).encode(),
+        st,
+        source_url="x",
+        extra={"feature_count": 2},
+    )
+    res = S.merge_fabs(["by-country/XX.geojson"], "wikidata.geojson", storage=st)
+    assert res.feature_count == 2  # WD fab + the 1 unique OSM fab (co-located OSM dropped)

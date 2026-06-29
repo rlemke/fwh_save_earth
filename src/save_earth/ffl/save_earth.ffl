@@ -426,12 +426,26 @@ namespace save_earth.sources {
     /** Merge the per-country fab GeoJSON parts into the single rendered world
       * layer (de-duped by osm_type + osm_id). */
     event facet MergeFabs(
-        parts: [String]
+        parts: [String],
+        wikidata_path: String = ""
     ) => (
         relative_path: String,
         feature_count: Int,
         country_count: Int
     ) with Effect(kind = "pure") with Cost(tier = "cheap")
+
+    /** Fetch every geocoded semiconductor fab from Wikidata in ONE SPARQL query
+      * (no fan-out: Wikidata has no per-area query limit). Structured fields OSM
+      * lacks (operator, country, inception, owner, wikipedia) for richer popups.
+      * Sparse + historical on its own, so it is UNIONed with the OSM source.
+      * Cache-first; only force=true re-queries. */
+    event facet DownloadFabsWikidata(
+        force: Boolean = false
+    ) => (
+        relative_path: String,
+        feature_count: Int,
+        was_cached: Boolean
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 }
 
 // ---------------------------------------------------------------------------
@@ -1060,7 +1074,8 @@ namespace save_earth.workflows {
     ) andThen {
         countries = ListFabCountries()
         fetched = FetchFabsByCountry(countries = countries.countries, force = $.force)
-        merged = MergeFabs(parts = fetched.fab_paths)
+        wd = DownloadFabsWikidata(force = $.force)
+        merged = MergeFabs(parts = fetched.fab_paths, wikidata_path = wd.relative_path)
         map = BuildMap(
             region = "semiconductor",
             center_lat = 30.0,
@@ -1070,7 +1085,7 @@ namespace save_earth.workflows {
             only_layers = "semiconductor-fabs",
             attribution_workflow = "save_earth.workflows.BuildSemiconductorMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "Semiconductor fabrication plants worldwide, from OpenStreetMap (industrial=semiconductor / man_made=works + product). Click any plant for its full OSM details (operator, products, start date, ...). Coverage is OSM-community-driven and uneven."
+            description = "Semiconductor fabrication plants worldwide, combining OpenStreetMap (industrial=semiconductor / man_made=works + product) and Wikidata (semiconductor fabrication plants, with operator / country / inception / owner). Each plant's popup shows its source fields. Open-data coverage is sparse and uneven (many fabs are unmapped); the two sources are unioned for fuller coverage."
         )
         yield BuildSemiconductorMap(
             status = "completed",

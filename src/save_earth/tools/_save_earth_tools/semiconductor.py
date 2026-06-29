@@ -61,6 +61,28 @@ logger = logging.getLogger("save-earth.semiconductor")
 NAMESPACE = "save-earth"
 CACHE_TYPE = "semiconductor"
 MERGED_RELATIVE_PATH = "fabs.geojson"
+WIKIDATA_RELATIVE_PATH = "wikidata.geojson"
+
+# Wikidata Query Service: every item that is (a subclass of) a semiconductor
+# fabrication plant (Q4168959) with coordinates, plus the rich structured fields
+# OSM rarely has (operator, country, inception, owner, wikipedia). A single global
+# SPARQL gets them all, so this source does NOT fan out (unlike the OSM source) —
+# there is no per-area query-size limit to work around. Coverage is sparse and
+# skews historical (Wikidata's fab modelling is incomplete), which is exactly why
+# we UNION it with the OSM source for fuller coverage rather than replace it.
+WIKIDATA_ENDPOINT = "https://query.wikidata.org/sparql"
+WIKIDATA_QUERY = """
+SELECT ?item ?itemLabel ?coord ?operatorLabel ?countryLabel ?inception ?ownerLabel ?article WHERE {
+  ?item wdt:P31/wdt:P279* wd:Q4168959 ;
+        wdt:P625 ?coord .
+  OPTIONAL { ?item wdt:P137 ?operator. }
+  OPTIONAL { ?item wdt:P17 ?country. }
+  OPTIONAL { ?item wdt:P571 ?inception. }
+  OPTIONAL { ?item wdt:P127 ?owner. }
+  OPTIONAL { ?article schema:about ?item ; schema:isPartOf <https://en.wikipedia.org/> . }
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+}
+"""
 
 # Natural Earth admin-0 (same source osm-mapping enumerates) — name + ISO2.
 NATURAL_EARTH_COUNTRIES = (
@@ -262,36 +284,157 @@ def _to_feature(el: dict[str, Any]) -> dict[str, Any] | None:
 
 
 # ---------------------------------------------------------------------------
-# Merge per-country GeoJSON → the single rendered world layer.
+# Wikidata source (single global SPARQL — fuller, structured, no fan-out).
 # ---------------------------------------------------------------------------
 
 
-def merge_fabs(parts: list[str], *, storage: Storage | None = None) -> MergeResult:
-    """Concatenate per-country FeatureCollections into ``fabs.geojson``.
+def download_fabs_wikidata(*, force: bool = False, storage: Storage | None = None) -> CountryResult:
+    """Fetch every geocoded semiconductor fab from Wikidata → cached GeoJSON.
 
-    ``parts`` are the per-country relative paths (``by-country/<ISO2>.geojson``)
-    accumulated by the fan-out. De-dupes by (osm_type, osm_id)."""
+    Cache-first like the OSM source: a present cache is reused unless force."""
     s = storage or get_storage()
-    seen: set[tuple[Any, Any]] = set()
+    rel = WIKIDATA_RELATIVE_PATH
+    if not force and sidecar.read_sidecar(NAMESPACE, CACHE_TYPE, rel, s):
+        if sidecar.exists_and_valid(NAMESPACE, CACHE_TYPE, rel, s):
+            side = sidecar.read_sidecar(NAMESPACE, CACHE_TYPE, rel, s)
+            return CountryResult(
+                iso2="",
+                name="wikidata",
+                relative_path=rel,
+                feature_count=int((side.get("extra") or {}).get("feature_count", 0)),
+                was_cached=True,
+            )
+    if requests is None:
+        raise RuntimeError("requests is required to query Wikidata")
+    resp = requests.post(
+        WIKIDATA_ENDPOINT,
+        data={"query": WIKIDATA_QUERY, "format": "json"},
+        timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+        headers={"User-Agent": USER_AGENT, "Accept": "application/sparql-results+json"},
+    )
+    resp.raise_for_status()
+    features = _wikidata_to_features(resp.json().get("results", {}).get("bindings", []))
+    body = json.dumps(
+        {"type": "FeatureCollection", "features": features}, separators=(",", ":")
+    ).encode("utf-8")
+    _persist(rel, body, s, source_url=WIKIDATA_ENDPOINT, extra={"feature_count": len(features)})
+    logger.info("wikidata: %d fab feature(s)", len(features))
+    return CountryResult(
+        iso2="", name="wikidata", relative_path=rel, feature_count=len(features), was_cached=False
+    )
+
+
+def _wikidata_to_features(bindings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """SPARQL bindings → GeoJSON Points with structured popup fields.
+
+    One row per (item, optional-value) tuple, so an item with two operators
+    yields two rows; de-dupe by item URI (keep the first), so each fab is one
+    point."""
+    feats: list[dict[str, Any]] = []
+    seen_items: set[str] = set()
+    for b in bindings:
+        coord = (b.get("coord") or {}).get("value", "")  # "Point(lon lat)"
+        if not coord.startswith("Point("):
+            continue
+        try:
+            lon, lat = (float(x) for x in coord[6:-1].split())
+        except (ValueError, IndexError):
+            continue
+        item = (b.get("item") or {}).get("value", "")  # full entity URI
+        if item and item in seen_items:
+            continue
+        if item:
+            seen_items.add(item)
+        props: dict[str, Any] = {"source": "wikidata"}
+        for fld, key in (
+            ("itemLabel", "name"),
+            ("operatorLabel", "operator"),
+            ("countryLabel", "country"),
+            ("inception", "inception"),
+            ("ownerLabel", "owner"),
+            ("article", "wikipedia"),
+        ):
+            v = (b.get(fld) or {}).get("value")
+            if v:
+                props[key] = v
+        if item:
+            props["wikidata_url"] = item
+            props["wikidata_id"] = item.rsplit("/", 1)[-1]
+        feats.append(
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                "properties": props,
+            }
+        )
+    return feats
+
+
+# ---------------------------------------------------------------------------
+# Merge per-country GeoJSON (+ optional Wikidata) → the rendered world layer.
+# ---------------------------------------------------------------------------
+
+
+def _spatial_key(feat: dict[str, Any]) -> tuple[float, float]:
+    """~1km bucket (coords rounded to 2dp) for cross-source de-dup of one fab
+    tagged in both OSM and Wikidata at slightly different coordinates."""
+    lon, lat = feat["geometry"]["coordinates"]
+    return (round(lat, 2), round(lon, 2))
+
+
+def merge_fabs(
+    parts: list[str], wikidata_path: str = "", *, storage: Storage | None = None
+) -> MergeResult:
+    """Merge per-country OSM FeatureCollections (+ optional Wikidata) into the
+    rendered ``fabs.geojson`` world layer.
+
+    Each OSM feature is tagged ``source="osm"``; Wikidata features carry
+    ``source="wikidata"`` already. De-dup within OSM by (osm_type, osm_id), then
+    UNION with Wikidata and drop cross-source duplicates by ~1km spatial bucket,
+    preferring the Wikidata feature (richer structured attributes) on a collision.
+    ``country_count`` counts OSM countries contributing features."""
+    s = storage or get_storage()
+    osm_seen: set[tuple[Any, Any]] = set()
     countries = 0
-    features: list[dict[str, Any]] = []
+    osm_feats: list[dict[str, Any]] = []
     for rel in parts:
         try:
             raw = s.read_text(sidecar.cache_path(NAMESPACE, CACHE_TYPE, rel, s))
         except Exception as exc:  # noqa: BLE001 — tolerate a missing/failed leaf
             logger.warning("merge: skipping %s (%s)", rel, exc)
             continue
-        fc = json.loads(raw)
-        country_feats = fc.get("features") or []
+        country_feats = json.loads(raw).get("features") or []
         if country_feats:
             countries += 1
         for f in country_feats:
             p = f.get("properties") or {}
             key = (p.get("osm_type"), p.get("osm_id"))
-            if key in seen:
+            if key in osm_seen:
                 continue
-            seen.add(key)
-            features.append(f)
+            osm_seen.add(key)
+            p.setdefault("source", "osm")
+            osm_feats.append(f)
+
+    wd_feats: list[dict[str, Any]] = []
+    if wikidata_path:
+        try:
+            raw = s.read_text(sidecar.cache_path(NAMESPACE, CACHE_TYPE, wikidata_path, s))
+            wd_feats = json.loads(raw).get("features") or []
+        except Exception as exc:  # noqa: BLE001 — Wikidata optional, tolerate
+            logger.warning("merge: skipping wikidata %s (%s)", wikidata_path, exc)
+
+    # Wikidata first (preferred on a spatial collision), then OSM fills the gaps.
+    by_bucket: dict[tuple[float, float], dict[str, Any]] = {}
+    for f in wd_feats:
+        by_bucket[_spatial_key(f)] = f
+    osm_kept = 0
+    for f in osm_feats:
+        k = _spatial_key(f)
+        if k not in by_bucket:
+            by_bucket[k] = f
+            osm_kept += 1
+    features = list(by_bucket.values())
+
     body = json.dumps(
         {"type": "FeatureCollection", "features": features}, separators=(",", ":")
     ).encode("utf-8")
@@ -300,9 +443,20 @@ def merge_fabs(parts: list[str], *, storage: Storage | None = None) -> MergeResu
         body,
         s,
         source_url=OVERPASS_ENDPOINTS[0],
-        extra={"feature_count": len(features), "country_count": countries},
+        extra={
+            "feature_count": len(features),
+            "country_count": countries,
+            "osm_count": osm_kept,
+            "wikidata_count": len(wd_feats),
+        },
     )
-    logger.info("merged %d fab feature(s) across %d country(ies)", len(features), countries)
+    logger.info(
+        "merged %d fabs (%d wikidata + %d osm, %d osm countries)",
+        len(features),
+        len(wd_feats),
+        osm_kept,
+        countries,
+    )
     return MergeResult(MERGED_RELATIVE_PATH, len(features), countries)
 
 
