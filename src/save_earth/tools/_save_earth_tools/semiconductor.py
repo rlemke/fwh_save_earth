@@ -295,12 +295,11 @@ def merge_fabs(parts: list[str], *, storage: Storage | None = None) -> MergeResu
     body = json.dumps(
         {"type": "FeatureCollection", "features": features}, separators=(",", ":")
     ).encode("utf-8")
-    sidecar.write_artifact(
-        NAMESPACE,
-        CACHE_TYPE,
+    _persist(
         MERGED_RELATIVE_PATH,
         body,
         s,
+        source_url=OVERPASS_ENDPOINTS[0],
         extra={"feature_count": len(features), "country_count": countries},
     )
     logger.info("merged %d fab feature(s) across %d country(ies)", len(features), countries)

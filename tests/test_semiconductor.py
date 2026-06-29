@@ -46,3 +46,26 @@ def test_query_is_per_country_and_covers_the_tag_schemes():
 def test_cache_is_first_no_auto_refresh():
     """A present cache must never expire on its own — only force re-queries."""
     assert S.DEFAULT_MAX_AGE_HOURS == float("inf")
+
+
+def test_persist_and_merge_round_trip(tmp_path, monkeypatch):
+    """Writing per-country caches and merging them must round-trip (regression:
+    merge_fabs once called a non-existent sidecar.write_artifact)."""
+    import json
+
+    monkeypatch.setenv("FW_STORAGE", "local")
+    monkeypatch.setenv("FW_DATA_ROOT", str(tmp_path))
+    from _save_earth_tools.storage import get_storage
+
+    st = get_storage()
+    for iso, lat, lon in (("TW", 24.0, 121.0), ("KR", 37.0, 127.0)):
+        feat = S._to_feature(
+            {"type": "node", "id": int(lat), "lat": lat, "lon": lon,
+             "tags": {"name": iso, "industrial": "semiconductor"}}
+        )
+        body = json.dumps({"type": "FeatureCollection", "features": [feat]}).encode()
+        S._persist(f"by-country/{iso}.geojson", body, st, source_url="x",
+                   extra={"feature_count": 1})
+    res = S.merge_fabs(["by-country/TW.geojson", "by-country/KR.geojson"], storage=st)
+    assert res.feature_count == 2 and res.country_count == 2
+    assert res.relative_path == "fabs.geojson"
