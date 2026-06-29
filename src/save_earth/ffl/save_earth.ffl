@@ -400,6 +400,38 @@ namespace save_earth.sources {
         was_cached: Boolean,
         used_mock: Boolean
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
+    /** Enumerate admin-0 countries (Natural Earth) for the per-country fab
+      * fan-out. Returns a JSON list of {iso2, name} (not a hardcoded list). */
+    event facet ListFabCountries() => (
+        countries: Json,
+        country_count: Int
+    ) with Effect(kind = "external") with Cost(tier = "cheap")
+
+    /** Fetch ONE country's semiconductor fabrication plants from the OSM
+      * Overpass API (industrial=semiconductor / industry=semiconductor /
+      * man_made=works + product matching semiconductor terms), keeping every OSM
+      * tag for the map popup. Cache-first: a present per-country cache is ALWAYS
+      * reused; only force=true re-queries Overpass. */
+    event facet DownloadFabsForCountry(
+        country_iso2: String,
+        country_name: String = "",
+        force: Boolean = false
+    ) => (
+        relative_path: String,
+        feature_count: Int,
+        was_cached: Boolean
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
+    /** Merge the per-country fab GeoJSON parts into the single rendered world
+      * layer (de-duped by osm_type + osm_id). */
+    event facet MergeFabs(
+        parts: [String]
+    ) => (
+        relative_path: String,
+        feature_count: Int,
+        country_count: Int
+    ) with Effect(kind = "pure") with Cost(tier = "cheap")
 }
 
 // ---------------------------------------------------------------------------
@@ -990,6 +1022,62 @@ namespace save_earth.workflows {
             status = "completed",
             html_path = map.html_path,
             detail = "seismic map with " ++ quakes.feature_count ++ " quake(s)"
+        )
+    }
+
+    /** Fan out per country: fetch each country's semiconductor fabs as a
+      * distributed task, accumulating the per-country cache paths. Cache-first
+      * (force=false) so re-runs reuse cached countries and never re-query
+      * Overpass; per-country failures are tolerated and just drop that country. */
+    workflow FetchFabsByCountry(
+        countries: Json = [],
+        force: Boolean = false
+    ) => (
+        fab_paths: [String]
+    ) andThen foreach c in $.countries {
+        fab = DownloadFabsForCountry(
+            country_iso2 = $.c.iso2,
+            country_name = $.c.name,
+            force = $.force
+        )
+        yield FetchFabsByCountry(fab_paths = [fab.relative_path])
+    }
+
+    /** Build a world map of semiconductor fabrication plants: enumerate every
+      * admin-0 country, fan out per country over the OSM Overpass API, merge the
+      * per-country results, and render a MapLibre point map whose popups show ALL
+      * OSM tags for each plant. Cache-first by default. Publish to facetwork-maps
+      * separately via census.workflows.PublishToSite (prefixes = [output_dir],
+      * dests = ["world/semiconductor"]). */
+    workflow BuildSemiconductorMap(
+        force: Boolean = false
+    ) => (
+        status: String,
+        html_path: String,
+        output_dir: String,
+        feature_count: Int,
+        country_count: Int
+    ) andThen {
+        countries = ListFabCountries()
+        fetched = FetchFabsByCountry(countries = countries.countries, force = $.force)
+        merged = MergeFabs(parts = fetched.fab_paths)
+        map = BuildMap(
+            region = "semiconductor",
+            center_lat = 30.0,
+            center_lon = 80.0,
+            zoom = 2.0,
+            dependency_signal = merged.feature_count,
+            only_layers = "semiconductor-fabs",
+            attribution_workflow = "save_earth.workflows.BuildSemiconductorMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "Semiconductor fabrication plants worldwide, from OpenStreetMap (industrial=semiconductor / man_made=works + product). Click any plant for its full OSM details (operator, products, start date, ...). Coverage is OSM-community-driven and uneven."
+        )
+        yield BuildSemiconductorMap(
+            status = "completed",
+            html_path = map.html_path,
+            output_dir = map.output_dir,
+            feature_count = merged.feature_count,
+            country_count = merged.country_count
         )
     }
 }

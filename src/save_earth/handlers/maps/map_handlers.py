@@ -16,6 +16,7 @@ from ..shared.save_earth_utils import (
     nuclear,
     openlittermap,
     seismic,
+    semiconductor,
     siting,
     telescope,
     tesla,
@@ -88,6 +89,18 @@ _NUCLEAR_LAYER = map_render.LayerSpec(
     source_relative_path=nuclear.RELATIVE_PATH,
     color="#2e7d32",
     radius=8,
+    description_fields=None,
+)
+
+# Semiconductor fabrication plants (OSM via per-country Overpass). description_fields
+# =None so the popup shows EVERY OSM tag (operator, name, product, start_date, …).
+_SEMICONDUCTOR_LAYER = map_render.LayerSpec(
+    name="semiconductor-fabs",
+    title="Semiconductor fabrication plants (OSM)",
+    source_cache_type=semiconductor.CACHE_TYPE,
+    source_relative_path=semiconductor.MERGED_RELATIVE_PATH,
+    color="#6a1b9a",
+    radius=7,
     description_fields=None,
 )
 
@@ -312,9 +325,21 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     storage = get_storage()
     # Faults (lines) before earthquakes (points) so quakes draw on top.
     candidates = (
-        [_NUCLEAR_LAYER, _VOLCANO_LAYER, _LGBTQ_LAYER, _TESLA_LAYER, _TELESCOPE_LAYER, _FAULTS_LAYER, _EARTHQUAKE_LAYER]
-        + _EPA_LAYERS + _openlittermap_layers(storage) + _enclave_layers(storage)
-        + _power_layers(storage) + _siting_layers(storage)
+        [
+            _NUCLEAR_LAYER,
+            _SEMICONDUCTOR_LAYER,
+            _VOLCANO_LAYER,
+            _LGBTQ_LAYER,
+            _TESLA_LAYER,
+            _TELESCOPE_LAYER,
+            _FAULTS_LAYER,
+            _EARTHQUAKE_LAYER,
+        ]
+        + _EPA_LAYERS
+        + _openlittermap_layers(storage)
+        + _enclave_layers(storage)
+        + _power_layers(storage)
+        + _siting_layers(storage)
     )
     if only:
         # Exact name match, plus a trailing-"*" prefix wildcard so a workflow can
@@ -322,8 +347,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
         prefixes = tuple(o[:-1] for o in only if o.endswith("*"))
         exact = {o for o in only if not o.endswith("*")}
         candidates = [
-            layer for layer in candidates
-            if layer.name in exact or layer.name.startswith(prefixes)
+            layer for layer in candidates if layer.name in exact or layer.name.startswith(prefixes)
         ]
     present: list[map_render.LayerSpec] = []
     for layer in candidates:

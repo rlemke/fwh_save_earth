@@ -20,6 +20,7 @@ from ..shared.save_earth_utils import (
     openlittermap,
     parse_bbox,
     seismic,
+    semiconductor,
     siting,
     telescope,
     tesla,
@@ -160,7 +161,9 @@ def handle_download_ethnic_enclaves(params: dict[str, Any]) -> dict[str, Any]:
     _step_log(step_log, f"DownloadEthnicEnclaves force={force} use_mock={use_mock}")
     res = enclaves.download(force=force, use_mock=use_mock)
     status = "cache" if res.was_cached else ("mock" if res.used_mock else "download")
-    top = ", ".join(f"{k}={v}" for k, v in sorted(res.per_heritage.items(), key=lambda x: -x[1])[:5])
+    top = ", ".join(
+        f"{k}={v}" for k, v in sorted(res.per_heritage.items(), key=lambda x: -x[1])[:5]
+    )
     _step_log(
         step_log,
         f"[{status}] enclaves  {res.feature_count:,} places across {res.heritage_count} heritages ({top})",
@@ -183,8 +186,12 @@ def handle_download_power_plants(params: dict[str, Any]) -> dict[str, Any]:
     res = power.download_plants(force=bool(params.get("force", False)))
     top = ", ".join(f"{k}={v}" for k, v in sorted(res.per_layer.items(), key=lambda x: -x[1]))
     _step_log(step_log, f"[download] power plants  {res.feature_count:,} ({top})", "success")
-    return {"cache_type": power.CACHE_TYPE, "feature_count": res.feature_count,
-            "layer_count": len(res.per_layer), "source_url": res.source_url}
+    return {
+        "cache_type": power.CACHE_TYPE,
+        "feature_count": res.feature_count,
+        "layer_count": len(res.per_layer),
+        "source_url": res.source_url,
+    }
 
 
 def handle_annotate_renewable_siting(params: dict[str, Any]) -> dict[str, Any]:
@@ -195,12 +202,19 @@ def handle_annotate_renewable_siting(params: dict[str, Any]) -> dict[str, Any]:
     _step_log(step_log, f"AnnotateRenewableSiting force={force} (NASA POWER climatology)")
     res = siting.annotate(force=force)
     per = ", ".join(f"{k}={v}" for k, v in sorted(res.per_layer.items()))
-    _step_log(step_log,
-              f"[siting] {res.feature_count:,} plants, {res.cells_sampled} cells sampled "
-              f"({per}) cached={res.was_cached}", "success")
-    return {"cache_type": siting.CACHE_TYPE, "feature_count": res.feature_count,
-            "cells_sampled": res.cells_sampled, "was_cached": res.was_cached,
-            "source_url": res.source_url}
+    _step_log(
+        step_log,
+        f"[siting] {res.feature_count:,} plants, {res.cells_sampled} cells sampled "
+        f"({per}) cached={res.was_cached}",
+        "success",
+    )
+    return {
+        "cache_type": siting.CACHE_TYPE,
+        "feature_count": res.feature_count,
+        "cells_sampled": res.cells_sampled,
+        "was_cached": res.was_cached,
+        "source_url": res.source_url,
+    }
 
 
 def handle_list_transmission_tiles(params: dict[str, Any]) -> dict[str, Any]:
@@ -222,7 +236,11 @@ def handle_download_transmission(params: dict[str, Any]) -> dict[str, Any]:
     res = power.download_transmission(force=force)
     status = "cache" if res.was_cached else "download"
     _step_log(step_log, f"[{status}] {res.feature_count:,} transmission lines ≥500 kV", "success")
-    return {"cache_type": power.CACHE_TYPE, "feature_count": res.feature_count, "was_cached": res.was_cached}
+    return {
+        "cache_type": power.CACHE_TYPE,
+        "feature_count": res.feature_count,
+        "was_cached": res.was_cached,
+    }
 
 
 def handle_download_transmission_tile(params: dict[str, Any]) -> dict[str, Any]:
@@ -347,11 +365,53 @@ def handle_download_faults(params: dict[str, Any]) -> dict[str, Any]:
     return {"cache_type": seismic.FAULTS_CACHE_TYPE, **_result_payload(res)}
 
 
+def handle_list_fab_countries(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle ListFabCountries — admin-0 countries (Natural Earth) for the fan-out."""
+    step_log = params.get("_step_log")
+    countries = semiconductor.list_fab_countries()
+    _step_log(step_log, f"ListFabCountries → {len(countries)} countries", "success")
+    return {"countries": countries, "country_count": len(countries)}
+
+
+def handle_download_fabs_for_country(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadFabsForCountry — one country's semiconductor fabs from OSM."""
+    iso2 = params.get("country_iso2", "") or ""
+    name = params.get("country_name", "") or ""
+    force = bool(params.get("force", False))
+    step_log = params.get("_step_log")
+    res = semiconductor.download_fabs_for_country(iso2, name, force=force)
+    status = "cache" if res.was_cached else "download"
+    _step_log(step_log, f"[{status}] {iso2} ({name}) → {res.feature_count} fab(s)", "success")
+    return {
+        "relative_path": res.relative_path,
+        "feature_count": res.feature_count,
+        "was_cached": res.was_cached,
+    }
+
+
+def handle_merge_fabs(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle MergeFabs — merge per-country fab GeoJSON into the world layer."""
+    parts = params.get("parts") or []
+    step_log = params.get("_step_log")
+    res = semiconductor.merge_fabs(list(parts))
+    _step_log(
+        step_log, f"MergeFabs → {res.feature_count} fabs / {res.country_count} countries", "success"
+    )
+    return {
+        "relative_path": res.relative_path,
+        "feature_count": res.feature_count,
+        "country_count": res.country_count,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
 _DISPATCH: dict[str, Any] = {
+    f"{NAMESPACE}.ListFabCountries": handle_list_fab_countries,
+    f"{NAMESPACE}.DownloadFabsForCountry": handle_download_fabs_for_country,
+    f"{NAMESPACE}.MergeFabs": handle_merge_fabs,
     f"{NAMESPACE}.DownloadOpenLitterMap": handle_download_openlittermap,
     f"{NAMESPACE}.DownloadEpaCleanups": handle_download_epa_cleanups,
     f"{NAMESPACE}.DownloadTri": handle_download_tri,
