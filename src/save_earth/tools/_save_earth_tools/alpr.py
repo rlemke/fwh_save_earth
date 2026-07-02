@@ -72,11 +72,13 @@ CONNECT_TIMEOUT = 30
 READ_TIMEOUT = 300
 DEFAULT_MAX_AGE_HOURS = 24.0 * 7  # crowd map moves faster than the reactor fleet
 
-# Every ALPR-tagged surveillance node (DeFlock's tagging convention).
-# node-only — ALPRs are points, so no `out center` is required.
+# Every ALPR-tagged surveillance node. Filter on the SELECTIVE tag only
+# (`surveillance:type=ALPR`) — every ALPR carries it, and intersecting with the
+# very common `man_made=surveillance` makes Overpass scan that huge set first and
+# time out. node-only — ALPRs are points, so no `out center` is required.
 OVERPASS_QUERY = (
-    "[out:json][timeout:180];"
-    'node["man_made"="surveillance"]["surveillance:type"="ALPR"];'
+    "[out:json][timeout:240];"
+    'node["surveillance:type"="ALPR"];'
     "out body tags;"
 )
 
@@ -176,6 +178,16 @@ def _fetch_overpass() -> tuple[list[dict[str, Any]], str]:
         elements = payload.get("elements")
         if not isinstance(elements, list):
             last_exc = RuntimeError(f"Overpass {endpoint} returned an unexpected shape")
+            continue
+
+        # A server-side timeout / runtime error comes back as HTTP 200 with an
+        # empty `elements` list plus a `remark` — do NOT accept that as "0
+        # cameras" (it silently produced an empty map once). Treat it as a
+        # failure so the next mirror is tried and, if all fail, we raise.
+        remark = payload.get("remark")
+        if not elements and remark:
+            logger.warning("Overpass %s remark: %s", endpoint, remark)
+            last_exc = RuntimeError(f"Overpass {endpoint} remark: {remark}")
             continue
 
         features: list[dict[str, Any]] = []
