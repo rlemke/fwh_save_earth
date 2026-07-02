@@ -83,7 +83,9 @@ DEFAULT_MAX_AGE_HOURS = 24.0 * 7  # crowd map moves faster than the reactor flee
 OVERPASS_QUERY = (
     "[out:json][timeout:240];"
     'node["surveillance:type"="ALPR"];'
-    "out body tags;"
+    "out body;"  # `body` = id + COORDINATES + tags. NOT `out body tags` — a
+                 # trailing `tags` means tags-only (no lat/lon), which silently
+                 # drops every node in _to_feature.
 )
 
 _lock = threading.Lock()
@@ -201,6 +203,13 @@ def _fetch_overpass() -> tuple[list[dict[str, Any]], str]:
             feat = _to_feature(el)
             if feat is not None:
                 features.append(feat)
+        # Elements present but NONE convertible → they came back without
+        # coordinates (e.g. a tags-only `out` mode); a valid map needs points,
+        # so try the next mirror rather than returning a coordinate-less set.
+        if not features:
+            logger.warning("Overpass %s: %d elements but 0 had coordinates", endpoint, len(elements))
+            last_exc = RuntimeError(f"Overpass {endpoint}: elements had no coordinates")
+            continue
         logger.info("Overpass %s → %d ALPR features", endpoint, len(features))
         return features, endpoint
 
