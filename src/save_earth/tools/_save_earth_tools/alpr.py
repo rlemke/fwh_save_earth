@@ -62,10 +62,14 @@ NAMESPACE = "save-earth"
 CACHE_TYPE = "alpr"
 RELATIVE_PATH = "cameras.geojson"
 
-# Overpass mirrors, tried in order (same as the other OSM sources).
+# Overpass mirrors, tried in order. All share the caller's public IP, so a
+# throttled network trips every one — the real remedy is a cool-down, not more
+# mirrors, but a wider list still helps route around a single overloaded host.
 OVERPASS_ENDPOINTS = (
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 )
 USER_AGENT = "facetwork-save-earth/1.0 (+https://github.com/rlemke/facetwork)"
 CONNECT_TIMEOUT = 30
@@ -180,14 +184,16 @@ def _fetch_overpass() -> tuple[list[dict[str, Any]], str]:
             last_exc = RuntimeError(f"Overpass {endpoint} returned an unexpected shape")
             continue
 
-        # A server-side timeout / runtime error comes back as HTTP 200 with an
-        # empty `elements` list plus a `remark` — do NOT accept that as "0
-        # cameras" (it silently produced an empty map once). Treat it as a
-        # failure so the next mirror is tried and, if all fail, we raise.
-        remark = payload.get("remark")
-        if not elements and remark:
-            logger.warning("Overpass %s remark: %s", endpoint, remark)
-            last_exc = RuntimeError(f"Overpass {endpoint} remark: {remark}")
+        # An EMPTY result is never legitimate for a worldwide ALPR query — it
+        # means a server-side timeout / throttle (Overpass signals a timeout as
+        # HTTP 200 with empty `elements` + a `remark`, but a throttled host can
+        # also return empty with no remark). Do NOT accept it as "0 cameras"
+        # (that silently produced a blank map once): try the next mirror, and if
+        # every mirror is empty, raise so the caller never caches an empty set.
+        if not elements:
+            remark = payload.get("remark") or "empty result (no remark — likely throttled)"
+            logger.warning("Overpass %s returned no elements: %s", endpoint, remark)
+            last_exc = RuntimeError(f"Overpass {endpoint}: {remark}")
             continue
 
         features: list[dict[str, Any]] = []
@@ -198,7 +204,10 @@ def _fetch_overpass() -> tuple[list[dict[str, Any]], str]:
         logger.info("Overpass %s → %d ALPR features", endpoint, len(features))
         return features, endpoint
 
-    raise RuntimeError(f"all Overpass mirrors failed; last error: {last_exc}")
+    raise RuntimeError(
+        f"all {len(OVERPASS_ENDPOINTS)} Overpass mirrors failed or were throttled "
+        f"(shared public IP rate-limit needs a cool-down); last error: {last_exc}"
+    )
 
 
 def _classify_vendor(tags: dict[str, Any]) -> str:
