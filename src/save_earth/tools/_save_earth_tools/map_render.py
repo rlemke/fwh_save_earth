@@ -71,10 +71,14 @@ class LayerSpec:
     color: str  # CSS colour for the circles / lines
     radius: int = 5  # circle radius in px
     description_fields: list[str] | None = None  # property names to show in popups
-    geometry: str = "circle"  # "circle" (points) | "line" (LineString faults/boundaries)
+    geometry: str = "circle"  # "circle" (points) | "line" (LineString) | "heatmap" (density)
     weight: float = 1.5  # line width in px (geometry="line")
     magnitude_field: str = ""  # circle layer: scale radius + colour by this numeric
     #                            property (e.g. earthquake "mag") instead of a flat dot
+    filter_field: str = ""  # render only features where properties[filter_field]==filter_value.
+    filter_value: str = ""  # Lets several LayerSpecs (e.g. a vendor split) share ONE cached
+    #                         file — the GeoJSON is inlined once and each layer filters it,
+    #                         instead of duplicating the features per layer.
 
 
 @dataclass
@@ -98,6 +102,7 @@ def render_map(
     attribution_workflow: str = "",
     attribution_ffl_url: str = "",
     description: str = "",
+    max_inline_features: int = 50_000,
 ) -> MapBundle:
     """Stitch cached GeoJSON from each LayerSpec into a single HTML map.
 
@@ -124,7 +129,17 @@ def render_map(
         if data.get("type") != "FeatureCollection":
             raise ValueError(f"{geojson_path} is not a FeatureCollection — aborting")
         loaded_layers.append((layer, data))
-        counts[layer.name] = len(data.get("features") or [])
+        # Filtered count when the layer renders only part of a shared source.
+        feats = data.get("features") or []
+        counts[layer.name] = (
+            len(feats)
+            if not layer.filter_field
+            else sum(
+                1
+                for f in feats
+                if str((f.get("properties") or {}).get(layer.filter_field, "")) == layer.filter_value
+            )
+        )
 
     html = _render_html(
         region_key,
@@ -136,6 +151,7 @@ def render_map(
         attribution_workflow=attribution_workflow,
         attribution_ffl_url=attribution_ffl_url,
         description=description,
+        max_inline_features=max_inline_features,
     )
 
     out_dir = _resolve_output_dir(region_key, output_dir=output_dir, storage=s)
@@ -215,6 +231,7 @@ def _render_html(
     attribution_workflow: str = "",
     attribution_ffl_url: str = "",
     description: str = "",
+    max_inline_features: int = 50_000,
 ) -> str:
     # Expand {s} → list of subdomains MapLibre understands. CARTO's
     # default URL uses {s} but Fastly's subdomains are a/b/c/d.
@@ -229,30 +246,46 @@ def _render_html(
     # visible on `window` in modern JS (block-scoped), so the map's
     # `map.addSource(..., { data })` call would see undefined and
     # MapLibre would 422 the source. One dict sidesteps that.
-    layer_data_map = {}
+    def _src_key(layer: LayerSpec) -> str:
+        return _safe_js_id(f"{layer.source_cache_type}__{layer.source_relative_path}")
+
+    def _matches(feat: dict[str, Any], layer: LayerSpec) -> bool:
+        if not layer.filter_field:
+            return True
+        return str((feat.get("properties") or {}).get(layer.filter_field, "")) == layer.filter_value
+
+    def _count(layer: LayerSpec, data: dict[str, Any]) -> int:
+        feats = data.get("features") or []
+        return len(feats) if not layer.filter_field else sum(1 for f in feats if _matches(f, layer))
+
+    # Inline each UNIQUE source's FeatureCollection ONCE (keyed by source, not by
+    # layer), so several LayerSpecs that share a cached file — a vendor split +
+    # a heatmap over the same points — don't duplicate ~N features per layer.
+    # Cap per source (callers who need more pass a higher max_inline_features).
+    layer_data_map: dict[str, Any] = {}
     for layer, data in loaded_layers:
-        # Cap at 50k features per layer — callers who need more should
-        # upgrade to PMTiles.
-        features = (data.get("features") or [])[:50_000]
-        layer_data_map[_safe_js_id(layer.name)] = {
-            "type": "FeatureCollection",
-            "features": features,
-        }
+        sk = _src_key(layer)
+        if sk not in layer_data_map:
+            features = (data.get("features") or [])[:max_inline_features]
+            layer_data_map[sk] = {"type": "FeatureCollection", "features": features}
     inline_data = "const LAYER_DATA = " + json.dumps(layer_data_map, separators=(",", ":")) + ";"
 
     layer_specs_js = json.dumps(
         [
             {
                 "id": _safe_js_id(layer.name),
+                "source_id": _src_key(layer),
                 "name": layer.name,
                 "title": layer.title,
                 "color": layer.color,
                 "radius": layer.radius,
                 "description_fields": layer.description_fields or [],
-                "feature_count": len(data.get("features") or []),
+                "feature_count": _count(layer, data),
                 "geometry": layer.geometry,
                 "weight": layer.weight,
                 "magnitude_field": layer.magnitude_field,
+                "filter_field": layer.filter_field,
+                "filter_value": layer.filter_value,
             }
             for layer, data in loaded_layers
         ],
@@ -395,7 +428,7 @@ def _render_html(
     # Bottom-right legend: a coloured dot per layer with its feature count.
     legend_rows = "".join(
         f'<div class="row"><span class="dot" style="background:{html_mod.escape(layer.color)}">'
-        f"</span>{html_mod.escape(layer.title)} ({len(data.get('features') or []):,})</div>"
+        f"</span>{html_mod.escape(layer.title)} ({_count(layer, data):,})</div>"
         for layer, data in loaded_layers
     )
     ptlegend_html = f'<div class="ptlegend"><b>Legend</b>{legend_rows}</div>' if loaded_layers else ""
@@ -485,31 +518,56 @@ def _render_html(
 
         let bigDotsOn = false;
 
+        // MapLibre '==' filter for a spec that renders only part of a shared source.
+        function filterOf(spec) {{
+          return spec.filter_field
+            ? ['==', ['to-string', ['get', spec.filter_field]], spec.filter_value]
+            : null;
+        }}
+
         map.on('load', () => {{
+          // Each unique inlined source is added ONCE; several layers (a vendor
+          // split + a heatmap over the same points) then reference it.
+          for (const sid of Object.keys(LAYER_DATA)) {{
+            if (!map.getSource(sid)) map.addSource(sid, {{ type: 'geojson', data: LAYER_DATA[sid] }});
+          }}
           for (const spec of LAYER_SPECS) {{
-            const data = LAYER_DATA[spec.id];
-            if (!data) {{
-              console.warn('save-earth: missing inlined data for', spec.id);
+            if (!LAYER_DATA[spec.source_id]) {{
+              console.warn('save-earth: missing inlined data for', spec.source_id);
               continue;
             }}
-            map.addSource(spec.id, {{ type: 'geojson', data }});
-            if (spec.geometry === 'line') {{
-              map.addLayer({{
-                id: spec.id,
-                type: 'line',
-                source: spec.id,
+            const flt = filterOf(spec);
+            if (spec.geometry === 'heatmap') {{
+              const lyr = {{
+                id: spec.id, type: 'heatmap', source: spec.source_id,
+                paint: {{
+                  'heatmap-weight': 1,
+                  'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 9, 3],
+                  'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 2, 6, 12, 12, 30],
+                  'heatmap-opacity': 0.85,
+                  'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'],
+                    0, 'rgba(0,0,255,0)', 0.2, '#4dabf7', 0.4, '#69db7c',
+                    0.6, '#ffd43b', 0.8, '#ff922b', 1, '#f03e3e']
+                }}
+              }};
+              if (flt) lyr.filter = flt;
+              map.addLayer(lyr);
+              continue;  // a density heatmap has no per-feature popup
+            }} else if (spec.geometry === 'line') {{
+              const lyr = {{
+                id: spec.id, type: 'line', source: spec.source_id,
                 layout: {{ 'line-join': 'round', 'line-cap': 'round' }},
                 paint: {{
                   'line-color': spec.color,
                   'line-width': spec.weight || 1.5,
                   'line-opacity': 0.85
                 }}
-              }});
+              }};
+              if (flt) lyr.filter = flt;
+              map.addLayer(lyr);
             }} else {{
-              map.addLayer({{
-                id: spec.id,
-                type: 'circle',
-                source: spec.id,
+              const lyr = {{
+                id: spec.id, type: 'circle', source: spec.source_id,
                 paint: {{
                   'circle-radius': radiusExpr(spec),
                   'circle-color': colorExpr(spec),
@@ -517,7 +575,9 @@ def _render_html(
                   'circle-stroke-color': '#fff',
                   'circle-opacity': 0.85
                 }}
-              }});
+              }};
+              if (flt) lyr.filter = flt;
+              map.addLayer(lyr);
             }}
             map.on('click', spec.id, (e) => {{
               const props = e.features[0].properties || {{}};
@@ -543,7 +603,7 @@ def _render_html(
 
           function applyRadius() {{
             for (const spec of LAYER_SPECS) {{
-              if (spec.geometry === 'line') continue;  // no circle-radius on a line layer
+              if (spec.geometry !== 'circle') continue;  // radius only applies to circle layers
               map.setPaintProperty(
                 spec.id,
                 'circle-radius',
@@ -608,9 +668,14 @@ def _render_html(
           }}
 
           // --- Name search: type to fly to a matching feature + open its popup.
+          // Index each unique source once (layers sharing a source would
+          // otherwise index the same features several times).
           const sidx = [];
+          const _searchedSrc = new Set();
           for (const spec of LAYER_SPECS) {{
-            const data = LAYER_DATA[spec.id]; if (!data) continue;
+            if (_searchedSrc.has(spec.source_id)) continue;
+            _searchedSrc.add(spec.source_id);
+            const data = LAYER_DATA[spec.source_id]; if (!data) continue;
             for (const f of data.features) {{
               const p = f.properties || {{}};
               const nm = p.name || p.primary_name || p.NAME || p.Name

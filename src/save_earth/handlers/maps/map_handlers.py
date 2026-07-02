@@ -93,17 +93,55 @@ _NUCLEAR_LAYER = map_render.LayerSpec(
     description_fields=None,
 )
 
-# ALPR surveillance cameras (OSM via DeFlock). description_fields=None so the popup
-# shows EVERY OSM tag (manufacturer, operator, direction, surveillance:zone, …).
-_ALPR_LAYER = map_render.LayerSpec(
-    name="alpr-cameras",
-    title="ALPR surveillance cameras (OSM / DeFlock)",
-    source_cache_type=alpr.CACHE_TYPE,
-    source_relative_path=alpr.RELATIVE_PATH,
-    color="#c62828",
-    radius=5,
-    description_fields=None,
-)
+# ALPR surveillance cameras (OSM via DeFlock). One cached file → a density heatmap
+# + a per-vendor split (Flock / Motorola / other), all sharing the same inlined
+# source (the renderer dedupes it). description_fields=None → the popup shows EVERY
+# OSM tag (manufacturer, operator, direction, surveillance:zone, …). The heatmap is
+# listed FIRST so it draws UNDER the coloured vendor dots.
+_ALPR_LAYERS = [
+    map_render.LayerSpec(
+        name="alpr-heatmap",
+        title="ALPR camera density (heatmap)",
+        source_cache_type=alpr.CACHE_TYPE,
+        source_relative_path=alpr.RELATIVE_PATH,
+        color="#ff922b",  # legend swatch (heatmap has no single dot colour)
+        geometry="heatmap",
+        description_fields=None,
+    ),
+    map_render.LayerSpec(
+        name="alpr-flock",
+        title="Flock Safety",
+        source_cache_type=alpr.CACHE_TYPE,
+        source_relative_path=alpr.RELATIVE_PATH,
+        color="#c62828",
+        radius=4,
+        filter_field="camera_vendor",
+        filter_value="flock",
+        description_fields=None,
+    ),
+    map_render.LayerSpec(
+        name="alpr-motorola",
+        title="Motorola / Vigilant",
+        source_cache_type=alpr.CACHE_TYPE,
+        source_relative_path=alpr.RELATIVE_PATH,
+        color="#f59f00",
+        radius=4,
+        filter_field="camera_vendor",
+        filter_value="motorola",
+        description_fields=None,
+    ),
+    map_render.LayerSpec(
+        name="alpr-other",
+        title="Other / unspecified ALPR",
+        source_cache_type=alpr.CACHE_TYPE,
+        source_relative_path=alpr.RELATIVE_PATH,
+        color="#868e96",
+        radius=4,
+        filter_field="camera_vendor",
+        filter_value="other",
+        description_fields=None,
+    ),
+]
 
 # Semiconductor fabrication plants (OSM via per-country Overpass). description_fields
 # =None so the popup shows EVERY OSM tag (operator, name, product, start_date, …).
@@ -333,6 +371,9 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     attribution_workflow = params.get("attribution_workflow", "") or ""
     attribution_ffl_url = params.get("attribution_ffl_url", "") or ""
     description = params.get("description", "") or ""
+    # Per-source inline cap. Default 50k; raise for a dense single-source map
+    # (e.g. ~120k ALPR cameras behind a vendor split + heatmap).
+    max_inline_features = int(params.get("max_inline_features", 0) or 50_000)
     step_log = params.get("_step_log")
 
     storage = get_storage()
@@ -340,7 +381,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     candidates = (
         [
             _NUCLEAR_LAYER,
-            _ALPR_LAYER,
+            *_ALPR_LAYERS,
             _SEMICONDUCTOR_LAYER,
             _VOLCANO_LAYER,
             _LGBTQ_LAYER,
@@ -407,6 +448,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
         attribution_workflow=attribution_workflow,
         attribution_ffl_url=attribution_ffl_url,
         description=description,
+        max_inline_features=max_inline_features,
     )
     _step_log(
         step_log,

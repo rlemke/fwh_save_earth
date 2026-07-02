@@ -507,7 +507,8 @@ namespace save_earth.maps {
         only_layers: String = "",
         attribution_workflow: String = "",
         attribution_ffl_url: String = "",
-        description: String = ""
+        description: String = "",
+        max_inline_features: Int = 0
     ) => (
         region_key: String,
         output_dir: String,
@@ -717,10 +718,11 @@ namespace save_earth.workflows {
             center_lon = $.center_lon,
             zoom = $.zoom,
             dependency_signal = cameras.feature_count,
-            only_layers = "alpr-cameras",
+            only_layers = "alpr-*",
+            max_inline_features = 130000,
             attribution_workflow = "save_earth.workflows.BuildALPRCameraMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "ALPR (Automatic License Plate Reader) surveillance camera locations worldwide, crowd-sourced in OpenStreetMap by the DeFlock project. Camera LOCATIONS only, not video or plate data. Click any camera for its full details (manufacturer, operator, direction, mounting, ...)."
+            description = "ALPR (Automatic License Plate Reader) surveillance camera locations worldwide, crowd-sourced in OpenStreetMap by the DeFlock project. Split by vendor (Flock Safety / Motorola / other) with a coverage-density heatmap. Camera LOCATIONS only, not video or plate data. Click any camera for its full details (manufacturer, operator, direction, mounting, ...)."
         ) catch {
             yield BuildALPRCameraMap(
                 status = "failed",
