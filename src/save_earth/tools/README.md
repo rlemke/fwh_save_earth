@@ -40,6 +40,7 @@ Every arrow is sidecar-mediated: each artifact has a sibling `.meta.json` with s
 | `download-epa-cleanups` | `--dataset {superfund,brownfields}` (repeatable) | `epa-cleanups/<dataset>.geojson` | Fetch EPA authoritative remediation-site data from `geopub.epa.gov/EMEF/efpoints` (auto-paginates past the 10,000-record server cap) |
 | `download-tri` | `--include-closed` / `--force` / `--use-mock` | `tri/facilities.geojson` | Fetch the EPA Toxic Release Inventory facility table (~65k facilities) from `data.epa.gov/efservice/`. Paginates past the 10k-row cap; negates longitude for western-hemisphere state codes (the DB stores longitude unsigned). Default filter drops closed facilities. |
 | `download-nuclear-reactors` | `--force` / `--use-mock` / `--backend {local,hdfs,s3}` | `nuclear/reactors.geojson` | Fetch worldwide nuclear power reactors & plants from OpenStreetMap via the Overpass API (`generator:source=nuclear` reactors + `plant:source=nuclear` stations, polygons centroided). Every OSM tag is kept verbatim so the map popup surfaces all available info. Coverage/tag-completeness is OSM-community-driven. |
+| `download-alpr-cameras` | `--force` / `--use-mock` / `--backend {local,hdfs,s3}` | `alpr/cameras.geojson` | Fetch worldwide ALPR surveillance camera locations from OpenStreetMap (the DeFlock crowd-sourced inventory: `man_made=surveillance` + `surveillance:type=ALPR`). Camera LOCATIONS only — no video/plate data. Every OSM tag kept verbatim + a derived `camera_vendor` (flock/motorola/other). ~336k nodes worldwide; single cached query, never a per-region fan-out. |
 | `build-save-earth-map` | `--region`, `--center`, `--zoom` | `maps/<region>/index.html` | Stitch every cached layer into a single MapLibre HTML page |
 
 Every tool supports:
@@ -59,6 +60,7 @@ Defaults are real endpoints; if an upstream URL rotates, pass `--url` and it'll 
 | **EPA Brownfields (ACRES)** — `geopub.epa.gov/EMEF/efpoints` layer 5 | Points | US Government public domain | ~40,000+ redevelopment sites |
 | **EPA TRI** — `data.epa.gov/efservice/TRI_FACILITY` | Points | US Government public domain | ~65,000 Toxic Release Inventory reporters (all time); ~35,000 currently active |
 | **OSM nuclear** — Overpass API (`generator:source=nuclear` / `plant:source=nuclear`) | Points | ODbL 1.0 (OpenStreetMap contributors) | ~1,000 worldwide reactors + plants; per-feature properties are the verbatim OSM tags (name, operator, output:electricity, start_date, generator:method, …) |
+| **OSM ALPR** — Overpass API (`man_made=surveillance` + `surveillance:type=ALPR`, DeFlock) | Points | ODbL 1.0 (OpenStreetMap contributors) | ~336k worldwide ALPR cameras; per-feature properties are the verbatim OSM tags (manufacturer, operator, direction, surveillance:zone, camera:mount, …) + derived `camera_vendor` |
 
 Feature popups preserve the upstream `properties` so every point carries a real name, status, description, and (where available) a link back to the source system.
 
@@ -82,6 +84,8 @@ cache/save-earth/
 │   └── facilities.geojson + .meta.json   ← EPA TRI facility points
 ├── nuclear/
 │   └── reactors.geojson + .meta.json     ← OSM nuclear reactors + plants
+├── alpr/
+│   └── cameras.geojson + .meta.json      ← OSM ALPR cameras (DeFlock)
 └── maps/
     └── <region>/
         ├── index.html
@@ -154,6 +158,7 @@ The HTML page ships with:
 | `openlittermap.py` | OpenLitterMap fetch + cache + GeoJSON normalization (supports `clusters` and `points` modes; modes/zoom/bbox each cache in their own entry) |
 | `epa_cleanups.py` | EPA Superfund / Brownfield fetch via `geopub.epa.gov/EMEF/efpoints` MapServer — auto-paginates past the 10 k-record server cap |
 | `nuclear.py` | OSM nuclear-power fetch via Overpass (reactors + plants, polygons centroided) — keeps every tag verbatim as the feature's properties |
+| `alpr.py` | OSM ALPR-camera fetch via Overpass (DeFlock `surveillance:type=ALPR` nodes) — keeps every tag verbatim + derives `camera_vendor` |
 | `map_render.py` | MapLibre HTML renderer — inlines each cached GeoJSON as a toggleable layer with click popups and the Big-Dots toggle. Storage-aware (reads via `read_text`, writes via `write_text_atomic`), so it renders straight to local disk or the object store. |
 
 The downloaders are pure fetch-and-cache — no transformation beyond normalizing the wrapper shape to a valid FeatureCollection. All per-feature metadata is preserved verbatim so popups can surface it.
@@ -168,6 +173,7 @@ Every CLI tool has a matching FFL event facet in `../ffl/save_earth.ffl`:
 | `download-epa-cleanups` | `save_earth.sources.DownloadEpaCleanups(dataset, force, use_mock)` |
 | `download-tri` | `save_earth.sources.DownloadTri(active_only, force, use_mock)` |
 | `download-nuclear-reactors` | `save_earth.sources.DownloadNuclearReactors(force, use_mock)` |
+| `download-alpr-cameras` | `save_earth.sources.DownloadALPRCameras(force, use_mock)` |
 | `build-save-earth-map` | `save_earth.maps.BuildMap(region, center_lat, center_lon, zoom, basemap_url, basemap_attribution, dependency_signal)` |
 
 Workflows:
@@ -175,6 +181,7 @@ Workflows:
 - `save_earth.workflows.BuildGlobalMap` — OLM clusters + Superfund + Brownfields in parallel, then BuildMap.
 - `save_earth.workflows.BuildRegionalMap` — region-scoped OLM zoom + Superfund, then BuildMap.
 - `save_earth.workflows.BuildNuclearReactorMap` — DownloadNuclearReactors → BuildMap. The nuclear layer registers with no curated field list, so clicking a reactor pops up **every** OSM tag (the "show all information" requirement).
+- `save_earth.workflows.BuildALPRCameraMap` — DownloadALPRCameras → BuildMap. The `alpr-cameras` layer registers with no curated field list, so clicking a camera pops up **every** OSM tag. Camera LOCATIONS only — no video/plate data.
 
 Handlers are thin dispatchers (`handlers/sources/`, `handlers/maps/`) that import from `tools/_save_earth_tools/` via `handlers/shared/save_earth_utils.py` — same code path as the CLI.
 

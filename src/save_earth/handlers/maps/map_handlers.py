@@ -8,6 +8,7 @@ import os
 from typing import Any
 
 from ..shared.save_earth_utils import (
+    alpr,
     enclaves,
     get_storage,
     power,
@@ -89,6 +90,18 @@ _NUCLEAR_LAYER = map_render.LayerSpec(
     source_relative_path=nuclear.RELATIVE_PATH,
     color="#2e7d32",
     radius=8,
+    description_fields=None,
+)
+
+# ALPR surveillance cameras (OSM via DeFlock). description_fields=None so the popup
+# shows EVERY OSM tag (manufacturer, operator, direction, surveillance:zone, …).
+_ALPR_LAYER = map_render.LayerSpec(
+    name="alpr-cameras",
+    title="ALPR surveillance cameras (OSM / DeFlock)",
+    source_cache_type=alpr.CACHE_TYPE,
+    source_relative_path=alpr.RELATIVE_PATH,
+    color="#c62828",
+    radius=5,
     description_fields=None,
 )
 
@@ -327,6 +340,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     candidates = (
         [
             _NUCLEAR_LAYER,
+            _ALPR_LAYER,
             _SEMICONDUCTOR_LAYER,
             _VOLCANO_LAYER,
             _LGBTQ_LAYER,

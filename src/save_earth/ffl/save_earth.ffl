@@ -167,6 +167,32 @@ namespace save_earth.sources {
         used_mock: Boolean
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
+    /** Download worldwide ALPR surveillance camera locations from OSM (DeFlock).
+      *
+      * Queries the OpenStreetMap Overpass API for every node tagged
+      * ``man_made=surveillance`` + ``surveillance:type=ALPR`` — the
+      * crowd-sourced Automatic License Plate Reader inventory the DeFlock
+      * project maintains in OSM. This is camera LOCATIONS only (no video
+      * or plate-read data — that is private to the operators). Every OSM
+      * tag is kept verbatim as the feature's properties (manufacturer,
+      * operator, direction the camera faces, surveillance:zone, mount, ...)
+      * plus a derived ``camera_vendor`` (flock/motorola/other), so the map
+      * popup can surface all available information. ~336k nodes worldwide;
+      * coverage is crowd-driven and varies by region. */
+    event facet DownloadALPRCameras(
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
     /** Download worldwide heritage-named enclave neighbourhoods from OSM.
       *
       * Queries the Overpass API for named places (place=neighbourhood /
@@ -653,6 +679,59 @@ namespace save_earth.workflows {
             status = "completed",
             html_path = map.html_path,
             detail = "nuclear map with " ++ reactors.feature_count ++ " reactor/plant feature(s)"
+        )
+    }
+
+    /** Build an interactive world map of ALPR surveillance cameras (DeFlock).
+      *
+      * Downloads the OSM ALPR dataset (crowd-sourced camera locations),
+      * then renders the auto-discovering MapLibre map. The alpr-cameras
+      * layer is registered with no curated field list, so clicking any
+      * camera opens a popup showing every attribute the dataset carries
+      * (manufacturer, operator, direction, surveillance:zone, ...).
+      * ``dependency_signal`` references the download's ``feature_count``
+      * so the runtime sequences the map build strictly after the data is
+      * cached. Camera LOCATIONS only — no video/plate data. */
+    workflow BuildALPRCameraMap(
+        center_lat: Double = 39.8283,
+        center_lon: Double = -98.5795,
+        zoom: Double = 4.0,
+        use_mock: Boolean = false
+    ) => (
+        status: String,
+        html_path: String,
+        detail: String
+    ) andThen {
+        cameras = DownloadALPRCameras(
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildALPRCameraMap(
+                status = "failed",
+                html_path = "",
+                detail = "ALPR camera download failed"
+            )
+        }
+        map = BuildMap(
+            region = "alpr",
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            dependency_signal = cameras.feature_count,
+            only_layers = "alpr-cameras",
+            attribution_workflow = "save_earth.workflows.BuildALPRCameraMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "ALPR (Automatic License Plate Reader) surveillance camera locations worldwide, crowd-sourced in OpenStreetMap by the DeFlock project. Camera LOCATIONS only, not video or plate data. Click any camera for its full details (manufacturer, operator, direction, mounting, ...)."
+        ) catch {
+            yield BuildALPRCameraMap(
+                status = "failed",
+                html_path = "",
+                detail = "map build failed"
+            )
+        }
+        yield BuildALPRCameraMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = "ALPR camera map with " ++ cameras.feature_count ++ " camera(s)"
         )
     }
 

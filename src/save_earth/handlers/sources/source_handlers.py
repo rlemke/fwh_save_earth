@@ -12,6 +12,7 @@ import os
 from typing import Any
 
 from ..shared.save_earth_utils import (
+    alpr,
     enclaves,
     power,
     epa_cleanups,
@@ -146,6 +147,23 @@ def handle_download_nuclear_reactors(params: dict[str, Any]) -> dict[str, Any]:
         "success",
     )
     return {"cache_type": nuclear.CACHE_TYPE, **_result_payload(res)}
+
+
+def handle_download_alpr_cameras(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadALPRCameras — worldwide ALPR camera locations from OSM (DeFlock)."""
+    force = bool(params.get("force", False))
+    use_mock = bool(params.get("use_mock", False))
+    step_log = params.get("_step_log")
+
+    _step_log(step_log, f"DownloadALPRCameras force={force} use_mock={use_mock}")
+    res = alpr.download(force=force, use_mock=use_mock)
+    status = "cache" if res.was_cached else ("mock" if res.used_mock else "download")
+    _step_log(
+        step_log,
+        f"[{status}] alpr/{res.relative_path}  {res.feature_count:,} ALPR cameras",
+        "success",
+    )
+    return {"cache_type": alpr.CACHE_TYPE, **_result_payload(res)}
 
 
 def handle_download_ethnic_enclaves(params: dict[str, Any]) -> dict[str, Any]:
@@ -434,6 +452,7 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadEpaCleanups": handle_download_epa_cleanups,
     f"{NAMESPACE}.DownloadTri": handle_download_tri,
     f"{NAMESPACE}.DownloadNuclearReactors": handle_download_nuclear_reactors,
+    f"{NAMESPACE}.DownloadALPRCameras": handle_download_alpr_cameras,
     f"{NAMESPACE}.DownloadEthnicEnclaves": handle_download_ethnic_enclaves,
     f"{NAMESPACE}.DownloadPowerPlants": handle_download_power_plants,
     f"{NAMESPACE}.AnnotateRenewableSiting": handle_annotate_renewable_siting,
