@@ -28,6 +28,8 @@ if str(_TOOLS_ROOT) not in sys.path:
 
 from _save_earth_tools import (  # noqa: E402,F401
     alpr,
+    aquifers,
+    datacenters,
     enclaves,
     power,
     epa_cleanups,

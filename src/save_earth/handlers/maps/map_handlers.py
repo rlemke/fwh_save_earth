@@ -9,6 +9,8 @@ from typing import Any
 
 from ..shared.save_earth_utils import (
     alpr,
+    aquifers,
+    datacenters,
     enclaves,
     get_storage,
     power,
@@ -142,6 +144,29 @@ _ALPR_LAYERS = [
         description_fields=None,
     ),
 ]
+
+# US principal-aquifer polygons (USGS) — the groundwater backdrop. Registered
+# BEFORE the data-center points so it draws underneath them.
+_AQUIFER_LAYER = map_render.LayerSpec(
+    name="aquifers",
+    title="Principal aquifers (USGS)",
+    source_cache_type=aquifers.CACHE_TYPE,
+    source_relative_path=aquifers.RELATIVE_PATH,
+    color="#1f78b4",
+    geometry="fill",
+    description_fields=["AQ_NAME", "ROCK_TYPE"],
+)
+
+# US data centers (OSM) — high-water-use compute over the aquifers.
+_DATACENTER_LAYER = map_render.LayerSpec(
+    name="data-centers",
+    title="Data centers (OSM)",
+    source_cache_type=datacenters.CACHE_TYPE,
+    source_relative_path=datacenters.RELATIVE_PATH,
+    color="#e31a1c",
+    radius=5,
+    description_fields=None,
+)
 
 # Semiconductor fabrication plants (OSM via per-country Overpass). description_fields
 # =None so the popup shows EVERY OSM tag (operator, name, product, start_date, …).
@@ -382,6 +407,8 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
         [
             _NUCLEAR_LAYER,
             *_ALPR_LAYERS,
+            _AQUIFER_LAYER,
+            _DATACENTER_LAYER,
             _SEMICONDUCTOR_LAYER,
             _VOLCANO_LAYER,
             _LGBTQ_LAYER,

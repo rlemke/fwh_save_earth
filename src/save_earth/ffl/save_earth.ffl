@@ -193,6 +193,41 @@ namespace save_earth.sources {
         used_mock: Boolean
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
+    /** Download US data-center locations from OSM (telecom/man_made=data_center,
+      * continental-US bbox, footprints centroided). Every OSM tag kept verbatim.
+      * Coverage is OSM-community-driven and incomplete; there is no open registry
+      * of *proposed* data centers, so this is existing/mapped facilities only. */
+    event facet DownloadDataCenters(
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
+    /** Download US principal-aquifer polygons from the USGS ArcGIS FeatureServer
+      * (server-side simplified; rock-only regions excluded). The groundwater
+      * backdrop the data-center map overlays. */
+    event facet DownloadAquifers(
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
     /** Download worldwide heritage-named enclave neighbourhoods from OSM.
       *
       * Queries the Overpass API for named places (place=neighbourhood /
@@ -734,6 +769,52 @@ namespace save_earth.workflows {
             status = "completed",
             html_path = map.html_path,
             detail = "ALPR camera map with " ++ cameras.feature_count ++ " camera(s)"
+        )
+    }
+
+    /** Build a US map of data centers overlaid on principal-aquifer polygons —
+      * where high-water-use compute sits over major groundwater. Downloads both
+      * layers, then renders the aquifer fill under the data-center points. */
+    workflow BuildDataCenterWaterMap(
+        center_lat: Double = 39.5,
+        center_lon: Double = -98.0,
+        zoom: Double = 4.0,
+        use_mock: Boolean = false
+    ) => (
+        status: String,
+        html_path: String,
+        detail: String
+    ) andThen {
+        aq = DownloadAquifers(
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildDataCenterWaterMap(status = "failed", html_path = "",
+                detail = "aquifer download failed")
+        }
+        dc = DownloadDataCenters(
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildDataCenterWaterMap(status = "failed", html_path = "",
+                detail = "data-center download failed")
+        }
+        map = BuildMap(
+            region = "data-centers",
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            dependency_signal = dc.feature_count + aq.feature_count,
+            only_layers = "aquifers,data-centers",
+            attribution_workflow = "save_earth.workflows.BuildDataCenterWaterMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "US data centers (OpenStreetMap) overlaid on principal-aquifer polygons (USGS). Data centers use large volumes of water for cooling, so siting them over stressed groundwater is a growing concern. OSM data-center coverage is incomplete, and no open dataset of PROPOSED data centers exists (they are tracked via news and zoning filings) - so this shows existing, mapped facilities only. Click a data center for its full details, or an aquifer for its name."
+        ) catch {
+            yield BuildDataCenterWaterMap(status = "failed", html_path = "",
+                detail = "map build failed")
+        }
+        yield BuildDataCenterWaterMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = "data-center + aquifer map: " ++ dc.feature_count ++ " data centers over " ++ aq.feature_count ++ " aquifer polygons"
         )
     }
 

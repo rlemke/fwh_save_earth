@@ -71,7 +71,7 @@ class LayerSpec:
     color: str  # CSS colour for the circles / lines
     radius: int = 5  # circle radius in px
     description_fields: list[str] | None = None  # property names to show in popups
-    geometry: str = "circle"  # "circle" (points) | "line" (LineString) | "heatmap" (density)
+    geometry: str = "circle"  # "circle" pts | "line" | "fill" (polygons) | "heatmap" (density)
     weight: float = 1.5  # line width in px (geometry="line")
     magnitude_field: str = ""  # circle layer: scale radius + colour by this numeric
     #                            property (e.g. earthquake "mag") instead of a flat dot
@@ -553,6 +553,17 @@ def _render_html(
               if (flt) lyr.filter = flt;
               map.addLayer(lyr);
               continue;  // a density heatmap has no per-feature popup
+            }} else if (spec.geometry === 'fill') {{
+              const lyr = {{
+                id: spec.id, type: 'fill', source: spec.source_id,
+                paint: {{
+                  'fill-color': spec.color,
+                  'fill-opacity': 0.35,
+                  'fill-outline-color': spec.color
+                }}
+              }};
+              if (flt) lyr.filter = flt;
+              map.addLayer(lyr);
             }} else if (spec.geometry === 'line') {{
               const lyr = {{
                 id: spec.id, type: 'line', source: spec.source_id,
