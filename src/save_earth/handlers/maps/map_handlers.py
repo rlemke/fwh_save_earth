@@ -11,6 +11,7 @@ from ..shared.save_earth_utils import (
     alpr,
     aquifers,
     datacenters,
+    nuclear_sites,
     enclaves,
     get_storage,
     power,
@@ -144,6 +145,31 @@ _ALPR_LAYERS = [
         description_fields=None,
     ),
 ]
+
+# Nuclear military sites (OSM) — one cached file, two toggleable layers split by
+# site_type (test sites vs missile silos), via the shared-source filter mechanism.
+_NUCLEAR_TEST_LAYER = map_render.LayerSpec(
+    name="nuclear-test-sites",
+    title="Nuclear test sites",
+    source_cache_type=nuclear_sites.CACHE_TYPE,
+    source_relative_path=nuclear_sites.RELATIVE_PATH,
+    color="#e67e22",
+    radius=5,
+    filter_field="site_type",
+    filter_value="test_site",
+    description_fields=None,
+)
+_MISSILE_SILO_LAYER = map_render.LayerSpec(
+    name="missile-silos",
+    title="Missile silos",
+    source_cache_type=nuclear_sites.CACHE_TYPE,
+    source_relative_path=nuclear_sites.RELATIVE_PATH,
+    color="#c0392b",
+    radius=5,
+    filter_field="site_type",
+    filter_value="missile_silo",
+    description_fields=None,
+)
 
 # US principal-aquifer polygons (USGS) — the groundwater backdrop. Registered
 # BEFORE the data-center points so it draws underneath them.
@@ -407,6 +433,8 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
         [
             _NUCLEAR_LAYER,
             *_ALPR_LAYERS,
+            _NUCLEAR_TEST_LAYER,
+            _MISSILE_SILO_LAYER,
             _AQUIFER_LAYER,
             _DATACENTER_LAYER,
             _SEMICONDUCTOR_LAYER,

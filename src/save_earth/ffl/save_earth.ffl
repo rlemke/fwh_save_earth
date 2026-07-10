@@ -211,6 +211,25 @@ namespace save_earth.sources {
         used_mock: Boolean
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
+    /** Download nuclear test sites (military=nuclear_explosion_site) + missile
+      * silos (bunker_type=missile_silo) worldwide from OSM. Publicly-tagged,
+      * geographically-fixed features; every OSM tag kept verbatim + a derived
+      * ``site_type`` so the two split into separate toggleable map layers.
+      * Coverage is community-driven and incomplete (esp. silos). */
+    event facet DownloadNuclearSites(
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
     /** Download US principal-aquifer polygons from the USGS ArcGIS FeatureServer
       * (server-side simplified; rock-only regions excluded). The groundwater
       * backdrop the data-center map overlays. */
@@ -769,6 +788,46 @@ namespace save_earth.workflows {
             status = "completed",
             html_path = map.html_path,
             detail = "ALPR camera map with " ++ cameras.feature_count ++ " camera(s)"
+        )
+    }
+
+    /** Build a world map of nuclear test sites + missile silos (OSM), each a
+      * separate toggleable layer (checkbox) so you can view either or both.
+      * Publicly-tagged, fixed locations; coverage is incomplete. */
+    workflow BuildNuclearSitesMap(
+        center_lat: Double = 30.0,
+        center_lon: Double = 10.0,
+        zoom: Double = 2.0,
+        use_mock: Boolean = false
+    ) => (
+        status: String,
+        html_path: String,
+        detail: String
+    ) andThen {
+        sites = DownloadNuclearSites(
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildNuclearSitesMap(status = "failed", html_path = "",
+                detail = "nuclear-sites download failed")
+        }
+        map = BuildMap(
+            region = "nuclear-sites",
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            dependency_signal = sites.feature_count,
+            only_layers = "nuclear-test-sites,missile-silos",
+            attribution_workflow = "save_earth.workflows.BuildNuclearSitesMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "Nuclear test sites and missile silos worldwide, from OpenStreetMap. Toggle each layer with the checkboxes in the Layers panel. These are publicly-tagged, geographically-fixed features (the same locations arms-control groups publish for transparency); OSM coverage is community-driven and incomplete, especially for silos. Click any site for its full details."
+        ) catch {
+            yield BuildNuclearSitesMap(status = "failed", html_path = "",
+                detail = "map build failed")
+        }
+        yield BuildNuclearSitesMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = "nuclear-sites map: " ++ sites.feature_count ++ " test sites + silos"
         )
     }
 
