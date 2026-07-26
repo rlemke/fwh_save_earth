@@ -56,6 +56,28 @@ declared in `pyproject.toml`. After `pip install -e .`, Facetwork's
 `scripts/start-runner --example save-earth` and `scripts/seed-examples`
 pick this package up automatically.
 
+## Feature specifications
+
+Per-feature specs live under [`docs/`](docs/README.md) — one document per feature,
+each covering how it works, whether it fans out, the upstream data/fields, external
+libraries, its facets & workflows, and its cache/output. Start with the flagship
+[map-rendering](docs/map-rendering.md).
+
+| Spec | What it covers |
+|------|----------------|
+| [map-rendering](docs/map-rendering.md) | **Flagship.** MapLibre renderer + `BuildMap`: circle/line/fill/heatmap geometry, magnitude circles, shared-source splits, popups/search/legend. |
+| [workflows](docs/workflows.md) | Download-then-build workflows: parallel downloads, `catch`, `dependency_signal`, `only_layers` — the full `Build*Map` catalog. |
+| [cache-and-storage](docs/cache-and-storage.md) | Sidecar cache, `FW_STORAGE` backends (local/hdfs/s3-MinIO), CLI↔handler shim, packaging. |
+| [epa-and-litter](docs/epa-and-litter.md) | OpenLitterMap + EPA Superfund/Brownfields + EPA TRI (the founding sources). |
+| [seismic](docs/seismic.md) | USGS earthquakes (magnitude circles) over Bird-2002 fault lines. |
+| [osm-overpass-sources](docs/osm-overpass-sources.md) | The single-query OSM point family (nuclear/ALPR/data-centers/volcanoes/…) + USGS aquifers. |
+| [enclaves](docs/enclaves.md) | Heritage-named neighbourhoods → one coloured layer per heritage. |
+| [semiconductor](docs/semiconductor.md) | Per-country OSM fan-out + Wikidata SPARQL union (the do-fan-out case). |
+| [power-transmission](docs/power-transmission.md) | WRI plants by fuel + ≥500 kV transmission (the "when *not* to fan out" case). |
+| [renewable-siting](docs/renewable-siting.md) | Solar/wind plants coloured by NASA POWER resource (`siting_score`). |
+
+Full index: [`docs/README.md`](docs/README.md).
+
 ## Install
 
 ```bash
