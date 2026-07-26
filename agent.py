@@ -8,7 +8,7 @@ dispatches them to the handlers in this package.
 Usage::
 
     # From a Facetwork checkout (preferred — handles env + seeding):
-    scripts/start-runner --example save-earth
+    fw runner start --domain save-earth
 
     # Or directly, once `pip install -e .` has registered the package:
     python agent.py

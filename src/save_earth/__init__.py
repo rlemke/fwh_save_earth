@@ -10,7 +10,7 @@ point declared in ``pyproject.toml``::
     save-earth = "save_earth:domain"
 
 Once ``pip install -e .`` has been run from this repository, Facetwork's
-``scripts/start-runner --example save-earth`` and ``scripts/seed-examples``
+``fw runner start --domain save-earth`` and ``fw ffl seed``
 will pick this package up automatically — no edits to the Facetwork
 repository required.
 """

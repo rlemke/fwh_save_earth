@@ -51,9 +51,9 @@ The CLI tools in `src/save_earth/tools/` and the FFL handlers share one
 `_save_earth_tools/` implementation and one on-disk cache (`$FW_DATA_ROOT/cache/save-earth/`)
 — the terminal and the runtime are two surfaces onto the same data.
 
-Discovered by the Facetwork runner via the `facetwork.examples` entry point
+Discovered by the Facetwork runner via the `facetwork.domains` entry point
 declared in `pyproject.toml`. After `pip install -e .`, Facetwork's
-`scripts/start-runner --example save-earth` and `scripts/seed-examples`
+`fw runner start --domain save-earth` and `fw ffl seed`
 pick this package up automatically.
 
 ## Feature specifications
@@ -86,7 +86,7 @@ cd fwh_save_earth
 pip install -e .
 ```
 
-This registers the package under the `facetwork.examples` entry-point group,
+This registers the package under the `facetwork.domains` entry-point group,
 making it discoverable by any Facetwork installation in the same environment.
 
 Or, from a Facetwork checkout, use the registry-driven helper:
@@ -99,8 +99,8 @@ scripts/install-example save-earth --check
 
 ```bash
 # Seed the workflows, then start a runner that advertises save_earth.* facets:
-scripts/seed-examples --include save-earth
-scripts/start-runner --example save-earth -- --log-format text
+fw ffl seed --include save-earth
+fw runner start --domain save-earth -- --log-format text
 ```
 
 Then open the dashboard (http://localhost:8080), create a run of
@@ -112,11 +112,11 @@ APIs.
 
 ```
 fwh_save_earth/
-├── pyproject.toml                       # declares facetwork.examples entry point
+├── pyproject.toml                       # declares facetwork.domains entry point
 ├── agent.py                             # standalone RegistryRunner entrypoint
 ├── agent-spec/                          # tools-pattern + cache-layout contracts
 ├── src/save_earth/
-│   ├── __init__.py                      # exports `example: ExamplePackage`
+│   ├── __init__.py                      # exports `domain: DomainPackage`
 │   ├── ffl/save_earth.ffl               # schemas, mixins, facets, workflows
 │   ├── handlers/
 │   │   ├── __init__.py                  # register_all_registry_handlers(runner)
