@@ -38,6 +38,7 @@ density heatmaps, magnitude-scaled circles, shared-source filters).
 |------|----------------|
 | [power-transmission.md](power-transmission.md) | WRI power plants by fuel + ≥500 kV OSM transmission (bounded/sequential/cache-aware) — the **"when *not* to fan out"** case, with a kept fan-out demo. |
 | [renewable-siting.md](renewable-siting.md) | Solar/wind plants annotated with NASA POWER 20-year resource → `siting_score` on the magnitude ramp. |
+| [ffl-examples.md](ffl-examples.md) | **Usage patterns.** A gallery of complete, compile-checked FFL examples over these facets — source→`BuildMap` wiring, per-source `catch`, tiled and per-country fan-out + merge, custom-mixin overrides, `when` guards. |
 
 ---
 

@@ -56,6 +56,48 @@ declared in `pyproject.toml`. After `pip install -e .`, Facetwork's
 `fw runner start --domain save-earth` and `fw ffl seed`
 pick this package up automatically.
 
+## FFL at a glance
+
+The domain is driven from [FFL](https://github.com/rlemke/facetwork/blob/main/docs/reference/language/grammar.md),
+Facetwork's workflow language. A step is `name = Facet(args)`; independent fetches
+run in parallel, and `only_layers` + `dependency_signal` point the generic renderer
+at what they cached:
+
+```ffl
+namespace my.save_earth {
+
+    use save_earth.sources
+    use save_earth.maps
+
+    /** Three fetches at once, then one map over all three layers. */
+    workflow HazardMap() => (html_path: String) andThen {
+
+        quakes = save_earth.sources.DownloadEarthquakes()
+        faults = save_earth.sources.DownloadFaults()
+        volc = save_earth.sources.DownloadVolcanoes()
+
+        map = save_earth.maps.BuildMap(
+            region = "global",
+            zoom = 2.0,
+            only_layers = "earthquakes,faults,volcanoes",
+            dependency_signal = quakes.feature_count)
+
+        yield HazardMap(html_path = map.html_path)
+    }
+}
+```
+
+```bash
+fw ffl run --primary my.ffl --library src/save_earth/ffl/save_earth.ffl \
+  --workflow my.save_earth.HazardMap
+```
+
+📖 **[docs/ffl-examples.md](docs/ffl-examples.md)** — the full example gallery:
+per-source `catch` (the domain's signature pattern), tiled fan-out + merge,
+per-country fan-out with Json loop variables and result collection, overriding the
+domain's own `RetryPolicy` mixin at a call site, and `when` guards. Every snippet
+there is compile-checked.
+
 ## Feature specifications
 
 Per-feature specs live under [`docs/`](docs/README.md) — one document per feature,
