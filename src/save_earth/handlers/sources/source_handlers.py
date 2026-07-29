@@ -30,6 +30,7 @@ from ..shared.save_earth_utils import (
     tesla,
     tri,
     volcanoes,
+    wildfire,
 )
 
 logger = logging.getLogger("save-earth.sources")
@@ -406,6 +407,41 @@ def handle_download_earthquakes(params: dict[str, Any]) -> dict[str, Any]:
     return {"cache_type": seismic.EARTHQUAKES_CACHE_TYPE, **_result_payload(res)}
 
 
+def handle_download_active_fire(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadActiveFire — NASA FIRMS 24h thermal-anomaly detections.
+
+    Returns the per-band and per-sensor counts alongside the usual payload so a
+    workflow can state "11,291 high / 108,597 nominal" without re-reading a
+    35 MB FeatureCollection, and the acquisition window so the map can date
+    itself. A fire map that cannot say how current it is invites the reader to
+    assume it is live.
+    """
+    force = bool(params.get("force", False))
+    use_mock = bool(params.get("use_mock", False))
+    step_log = params.get("_step_log")
+
+    _step_log(step_log, f"DownloadActiveFire force={force} use_mock={use_mock}")
+    res = wildfire.download_active_fire(force=force, use_mock=use_mock)
+    status = "cache" if res.was_cached else ("mock" if res.used_mock else "download")
+    bands = res.band_counts or {}
+    _step_log(
+        step_log,
+        f"[{status}] active_fire/{res.relative_path}  {res.feature_count:,} detections "
+        f"(high={bands.get('high', 0):,} nominal={bands.get('nominal', 0):,} "
+        f"low={bands.get('low', 0):,})",
+        "success",
+    )
+    return {
+        "cache_type": wildfire.CACHE_TYPE,
+        **_result_payload(res),
+        "high_count": int(bands.get("high", 0)),
+        "nominal_count": int(bands.get("nominal", 0)),
+        "low_count": int(bands.get("low", 0)),
+        "acquired_from": res.acquired_from,
+        "acquired_to": res.acquired_to,
+    }
+
+
 def handle_download_faults(params: dict[str, Any]) -> dict[str, Any]:
     """Handle DownloadFaults — tectonic plate boundaries (Bird 2002 PB2002)."""
     force = bool(params.get("force", False))
@@ -509,6 +545,7 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadTelescopes": handle_download_telescopes,
     f"{NAMESPACE}.DownloadEarthquakes": handle_download_earthquakes,
     f"{NAMESPACE}.DownloadFaults": handle_download_faults,
+    f"{NAMESPACE}.DownloadActiveFire": handle_download_active_fire,
 }
 
 

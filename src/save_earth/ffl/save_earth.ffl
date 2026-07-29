@@ -479,6 +479,39 @@ namespace save_earth.sources {
         used_mock: Boolean
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
+    /** Download NASA FIRMS active-fire / thermal-anomaly detections (past 24h).
+      *
+      * Merges the two keyless global feeds -- VIIRS S-NPP (375 m) and MODIS
+      * Terra/Aqua (1 km) -- into one GeoJSON, normalising each sensor's own
+      * confidence onto a shared low/nominal/high band and sorting by fire
+      * radiative power descending.
+      *
+      * These are THERMAL ANOMALIES, not confirmed wildfires: gas flares,
+      * industrial heat, active lava and agricultural burning all register the
+      * same way, and the feed does not distinguish them. Detections are also
+      * limited by cloud cover and satellite overpass, so an empty area means
+      * "nothing detected", never "nothing burning".
+      *
+      * Near-real-time data, so the cache holds for ~1 hour rather than days. */
+    event facet DownloadActiveFire(
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean,
+        high_count: Int,
+        nominal_count: Int,
+        low_count: Int,
+        acquired_from: String,
+        acquired_to: String
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate") with Timeout(minutes = 15)
+
     /** Enumerate admin-0 countries (Natural Earth) for the per-country fab
       * fan-out. Returns a JSON list of {iso2, name} (not a hardcoded list). */
     event facet ListFabCountries() => (
@@ -1236,6 +1269,61 @@ namespace save_earth.workflows {
             status = "completed",
             html_path = map.html_path,
             detail = "seismic map with " ++ quakes.feature_count ++ " quake(s)"
+        )
+    }
+
+    /** World map of active fires / thermal anomalies detected in the past 24h.
+      *
+      * Downloads the merged NASA FIRMS feed (VIIRS 375 m + MODIS 1 km) and
+      * renders it as three toggleable confidence bands, each circle sized by
+      * fire radiative power. `after fires` because the render reads the cache
+      * the download wrote and takes no value from it.
+      *
+      * `max_inline_features` caps how many detections reach the HTML. The cached
+      * feed is FRP-sorted, so a cap keeps the most energetic detections rather
+      * than an arbitrary slice -- but it IS a cap: the returned detail states
+      * how many of how many are drawn. */
+    workflow BuildWildfireMap(
+        center_lat: Double = 20.0,
+        center_lon: Double = 0.0,
+        zoom: Double = 1.6,
+        max_inline_features: Int = 40000,
+        use_mock: Boolean = false
+    ) => (
+        status: String,
+        html_path: String,
+        detail: String
+    ) andThen {
+        fires = DownloadActiveFire(
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildWildfireMap(
+                status = "failed",
+                html_path = "",
+                detail = "FIRMS active-fire download failed"
+            )
+        }
+        map = BuildMap(
+            region = "wildfire",
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            only_layers = "fire-*",
+            max_inline_features = $.max_inline_features,
+            attribution_workflow = "save_earth.workflows.BuildWildfireMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "Active fire and thermal-anomaly detections from NASA FIRMS over the past 24 hours (VIIRS 375 m + MODIS 1 km), split into low, nominal and high confidence bands. Circle size scales with fire radiative power. IMPORTANT: these are thermal anomalies, not confirmed wildfires -- gas flares, industrial heat, active lava and agricultural burning all register identically, and the single strongest detection on a given day is often a volcano. Detections are limited by cloud cover and satellite overpass, so a blank area means nothing was detected, not that nothing is burning. Click any detection for its sensor, confidence, radiative power and acquisition time. For page weight the map draws only the strongest detections by radiative power (max_inline_features); the layer toggles show how many of each band are drawn, and the complete set is in the cached GeoJSON."
+        ) after fires catch {
+            yield BuildWildfireMap(
+                status = "failed",
+                html_path = "",
+                detail = "map build failed"
+            )
+        }
+        yield BuildWildfireMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = fires.feature_count ++ " thermal anomalies detected " ++ fires.acquired_from ++ " to " ++ fires.acquired_to ++ " (" ++ fires.high_count ++ " high / " ++ fires.nominal_count ++ " nominal / " ++ fires.low_count ++ " low confidence); map draws " ++ map.layer_count ++ " band(s), strongest first"
         )
     }
 

@@ -306,6 +306,55 @@ namespace my.save_earth {
 }
 ```
 
+## 10. A near-real-time layer — cap what you draw, and say so
+
+`BuildWildfireMap` renders ~130k NASA FIRMS thermal-anomaly detections. Two
+things make it different from the static layers above.
+
+First, the render reads the **cache** the download wrote and takes no value from
+it, so the order is invisible to the compiler — `after fires` is required, and a
+reference would not be enough.
+
+Second, the map cannot draw everything: the renderer inlines GeoJSON and caps
+each source. The cached feed is sorted by fire radiative power, so the cap keeps
+the strongest detections rather than an arbitrary slice — and the yield states
+what was detected versus what is drawn, so the page can never quietly imply it
+shows everything.
+
+```ffl
+namespace my.save_earth {
+
+    use save_earth.sources
+    use save_earth.maps
+
+    /** Thermal anomalies, high-detail: draw more than the shipped default. */
+    workflow HotSpots(draw: Int = 80000) => (status: String, html_path: String, detail: String) andThen {
+
+        fires = save_earth.sources.DownloadActiveFire() catch {
+            yield HotSpots(status = "failed", html_path = "", detail = "FIRMS fetch failed")
+        }
+
+        map = save_earth.maps.BuildMap(
+            region = "hotspots",
+            zoom = 1.6,
+            only_layers = "fire-*",
+            max_inline_features = $.draw
+        ) after fires
+
+        yield HotSpots(
+            status = "completed",
+            html_path = map.html_path,
+            detail = fires.feature_count ++ " detected, drawing up to " ++ $.draw)
+    }
+}
+```
+
+⚠️ These are **thermal anomalies**, not confirmed wildfires — gas flares,
+industrial heat and active lava all register the same way. See
+[wildfire.md](wildfire.md).
+
+---
+
 ---
 
 ## Cheat sheet

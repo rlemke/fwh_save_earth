@@ -28,6 +28,7 @@ density heatmaps, magnitude-scaled circles, shared-source filters).
 |------|----------------|
 | [epa-and-litter.md](epa-and-litter.md) | The founding environmental sources: OpenLitterMap, EPA Superfund/Brownfields (ArcGIS), EPA TRI — feed the combined `BuildGlobalMap`. |
 | [seismic.md](seismic.md) | Earthquakes (USGS M4.5+ feed, magnitude circles) over the fault lines (Bird 2002 `PB2002`, LineString) — `BuildSeismicMap`. |
+| [wildfire.md](wildfire.md) | NASA FIRMS active-fire / **thermal anomaly** detections (VIIRS 375 m + MODIS 1 km, past 24h) as three confidence bands sized by radiative power — `BuildWildfireMap`. Near-real-time (1 h cache); includes flares, industry and lava, not just wildfires. |
 | [osm-overpass-sources.md](osm-overpass-sources.md) | The single-query OSM point family (nuclear reactors, ALPR/DeFlock, data centers, nuclear sites, volcanoes, LGBTQ+, telescopes, Tesla) + USGS aquifers — verbatim-tag popups, shared-source splits. |
 | [enclaves.md](enclaves.md) | Heritage-named neighbourhoods (24 heritages, name-regex classification) → one coloured GeoJSON + layer per heritage. |
 | [semiconductor.md](semiconductor.md) | Semiconductor fabs: per-country OSM fan-out (`foreach`) + a single Wikidata SPARQL, unioned — the domain's **do-fan-out** case. |

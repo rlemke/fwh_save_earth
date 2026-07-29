@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import html as html_mod
+import logging
 import json
 import os
 import sys
@@ -42,6 +43,8 @@ if str(_TOOLS_ROOT) not in sys.path:
 
 from _save_earth_tools import sidecar  # noqa: E402
 from _save_earth_tools.storage import Storage, get_storage  # noqa: E402
+
+logger = logging.getLogger("save-earth.map_render")
 
 NAMESPACE = "save-earth"
 CACHE_TYPE = "maps"
@@ -115,6 +118,9 @@ def render_map(
 
     loaded_layers: list[tuple[LayerSpec, dict[str, Any]]] = []
     counts: dict[str, int] = {}
+    # One capped copy per unique source, shared by every layer that filters it.
+    capped_sources: dict[tuple[str, str], dict[str, Any]] = {}
+    dropped: dict[tuple[str, str], int] = {}
     for layer in layers:
         geojson_path = sidecar.cache_path(
             NAMESPACE, layer.source_cache_type, layer.source_relative_path, s
@@ -128,6 +134,30 @@ def render_map(
         data = json.loads(s.read_text(geojson_path))
         if data.get("type") != "FeatureCollection":
             raise ValueError(f"{geojson_path} is not a FeatureCollection — aborting")
+        # Apply the inline cap HERE, before counting, so layer_counts describes
+        # what the map actually DRAWS rather than what the cache holds. The cap
+        # used to be applied only when inlining, so a capped map reported its
+        # full pre-cap counts: the wildfire map inlined 40,000 detections and
+        # reported 131,574 — overstating by 3.3x with nothing to reveal it.
+        # Truncate ONCE per unique source (matching the inline step, which keys
+        # by source so layers sharing a file don't duplicate features).
+        src_key = (layer.source_cache_type, layer.source_relative_path)
+        if src_key not in capped_sources:
+            all_feats = data.get("features") or []
+            if len(all_feats) > max_inline_features:
+                logger.warning(
+                    "%s/%s: %d features exceed max_inline_features=%d — drawing the "
+                    "first %d (the cached file's order decides which)",
+                    layer.source_cache_type, layer.source_relative_path,
+                    len(all_feats), max_inline_features, max_inline_features,
+                )
+                dropped[src_key] = len(all_feats) - max_inline_features
+            capped_sources[src_key] = {
+                "type": "FeatureCollection",
+                "features": all_feats[:max_inline_features],
+            }
+        data = capped_sources[src_key]
+
         loaded_layers.append((layer, data))
         # Filtered count when the layer renders only part of a shared source.
         feats = data.get("features") or []

@@ -46,6 +46,7 @@ from _save_earth_tools import (  # noqa: E402,F401
     tesla,
     tri,
     volcanoes,
+    wildfire,
 )
 from _save_earth_tools.storage import LocalStorage, get_storage  # noqa: E402,F401
 
@@ -85,5 +86,6 @@ __all__ = [
     "tesla",
     "tri",
     "volcanoes",
+    "wildfire",
     "lgbtq",
 ]

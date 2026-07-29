@@ -20,6 +20,7 @@ from ..shared.save_earth_utils import (
     nuclear,
     openlittermap,
     seismic,
+    wildfire,
     semiconductor,
     siting,
     telescope,
@@ -280,6 +281,53 @@ _EARTHQUAKE_LAYER = map_render.LayerSpec(
     description_fields=None,
 )
 
+# NASA FIRMS thermal anomalies. All three bands read the SAME cached
+# FeatureCollection and select their slice with filter_field — that is what
+# filter_field exists for, and it matters here: the file is ~35 MB, so
+# duplicating it per band would triple the inlined payload for nothing.
+#
+# Ordered low → high so the strongest detections draw on top. Colours run
+# yellow → orange → red, matching how FIRMS itself presents confidence.
+# magnitude_field="frp" scales each circle by fire radiative power, so a 4,000 MW
+# lava lake or a major fire front reads differently from a 2 MW field burn.
+#
+# These are labelled "thermal anomalies", NOT "wildfires", on purpose: the feed
+# cannot distinguish a wildfire from a gas flare, an industrial stack or an
+# active volcano, and the strongest detection in a typical day is often Kilauea.
+_FIRE_DESCRIPTION_FIELDS = [
+    "sensor",
+    "confidence_band",
+    "confidence_raw",
+    "frp",
+    "brightness_k",
+    "acquired_utc",
+    "daynight",
+    "satellite",
+]
+
+
+def _fire_layer(band: str, title: str, color: str, radius: int) -> map_render.LayerSpec:
+    return map_render.LayerSpec(
+        name=f"fire-{band}",
+        title=title,
+        source_cache_type=wildfire.CACHE_TYPE,
+        source_relative_path=wildfire.RELATIVE_PATH,
+        color=color,
+        radius=radius,
+        magnitude_field="frp",
+        filter_field="confidence_band",
+        filter_value=band,
+        description_fields=_FIRE_DESCRIPTION_FIELDS,
+    )
+
+
+_FIRE_LAYERS = [
+    _fire_layer("low", "Thermal anomalies - low confidence (24h)", "#ffd54f", 3),
+    _fire_layer("nominal", "Thermal anomalies - nominal confidence (24h)", "#fb8c00", 4),
+    _fire_layer("high", "Thermal anomalies - high confidence (24h)", "#d50000", 5),
+]
+
+
 _OLM_DESCRIPTION_FIELDS = [
     "point_count",
     "point_count_abbreviated",
@@ -444,6 +492,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
             _TELESCOPE_LAYER,
             _FAULTS_LAYER,
             _EARTHQUAKE_LAYER,
+            *_FIRE_LAYERS,
         ]
         + _EPA_LAYERS
         + _openlittermap_layers(storage)

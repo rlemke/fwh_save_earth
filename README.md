@@ -112,6 +112,7 @@ libraries, its facets & workflows, and its cache/output. Start with the flagship
 | [cache-and-storage](docs/cache-and-storage.md) | Sidecar cache, `FW_STORAGE` backends (local/hdfs/s3-MinIO), CLI↔handler shim, packaging. |
 | [epa-and-litter](docs/epa-and-litter.md) | OpenLitterMap + EPA Superfund/Brownfields + EPA TRI (the founding sources). |
 | [seismic](docs/seismic.md) | USGS earthquakes (magnitude circles) over Bird-2002 fault lines. |
+| [wildfire](docs/wildfire.md) | NASA FIRMS thermal anomalies (past 24h), three confidence bands scaled by fire radiative power. |
 | [osm-overpass-sources](docs/osm-overpass-sources.md) | The single-query OSM point family (nuclear/ALPR/data-centers/volcanoes/…) + USGS aquifers. |
 | [enclaves](docs/enclaves.md) | Heritage-named neighbourhoods → one coloured layer per heritage. |
 | [semiconductor](docs/semiconductor.md) | Per-country OSM fan-out + Wikidata SPARQL union (the do-fan-out case). |
