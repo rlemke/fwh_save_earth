@@ -315,6 +315,16 @@ def _fire_layer(band: str, title: str, color: str, radius: int) -> map_render.La
         color=color,
         radius=radius,
         magnitude_field="frp",
+        # FRP stops, NOT the earthquake defaults. Observed distribution over a
+        # normal 24h: median 5 MW, p90 22, p99 99, max ~4000. On the default
+        # Richter stops (4/6/8) every detection above 8 MW hit the 22 px cap, so
+        # the map rendered as one giant blob. These stops keep the typical
+        # detection a small dot and let a genuinely large fire stand out.
+        magnitude_stops=(5.0, 100.0, 1000.0),
+        magnitude_radii=(2.0, 5.0, 10.0),
+        # Colour already encodes CONFIDENCE here; the magnitude ramp would
+        # override it and make the legend disagree with the dots.
+        magnitude_color=False,
         filter_field="confidence_band",
         filter_value=band,
         description_fields=_FIRE_DESCRIPTION_FIELDS,

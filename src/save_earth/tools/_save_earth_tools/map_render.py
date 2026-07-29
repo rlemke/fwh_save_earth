@@ -76,8 +76,19 @@ class LayerSpec:
     description_fields: list[str] | None = None  # property names to show in popups
     geometry: str = "circle"  # "circle" pts | "line" | "fill" (polygons) | "heatmap" (density)
     weight: float = 1.5  # line width in px (geometry="line")
-    magnitude_field: str = ""  # circle layer: scale radius + colour by this numeric
+    magnitude_field: str = ""  # circle layer: scale radius (+ colour) by this numeric
     #                            property (e.g. earthquake "mag") instead of a flat dot
+    # Input breakpoints + output radii for magnitude_field. The defaults are
+    # EARTHQUAKE-tuned (Richter 4/6/8 -> 3/9/22 px). Any quantity on a different
+    # scale MUST override them: FRP (fire radiative power) runs 0-4000 MW, so on
+    # the earthquake stops every detection above 8 MW pinned at the 22 px maximum
+    # and the map became a wall of giant dots.
+    magnitude_stops: tuple[float, float, float] = (4.0, 6.0, 8.0)
+    magnitude_radii: tuple[float, float, float] = (3.0, 9.0, 22.0)
+    # When False the layer keeps its own `color` instead of the magnitude colour
+    # ramp — needed when the colour already encodes something else (fire layers
+    # colour by CONFIDENCE, and having the ramp override it made the legend lie).
+    magnitude_color: bool = True
     filter_field: str = ""  # render only features where properties[filter_field]==filter_value.
     filter_value: str = ""  # Lets several LayerSpecs (e.g. a vendor split) share ONE cached
     #                         file — the GeoJSON is inlined once and each layer filters it,
@@ -314,6 +325,9 @@ def _render_html(
                 "geometry": layer.geometry,
                 "weight": layer.weight,
                 "magnitude_field": layer.magnitude_field,
+                "magnitude_stops": list(layer.magnitude_stops),
+                "magnitude_radii": list(layer.magnitude_radii),
+                "magnitude_color": layer.magnitude_color,
                 "filter_field": layer.filter_field,
                 "filter_value": layer.filter_value,
             }
@@ -501,15 +515,16 @@ def _render_html(
 
         // Earthquake styling: scale circle radius + colour by magnitude when a
         // layer declares a magnitude_field; otherwise a flat dot.
-        function magExpr(spec, lo, mid, hi) {{
+        function magExpr(spec) {{
           const m = ['coalesce', ['to-number', ['get', spec.magnitude_field]], 0];
-          return ['interpolate', ['linear'], m, 4, lo, 6, mid, 8, hi];
+          const s = spec.magnitude_stops, r = spec.magnitude_radii;
+          return ['interpolate', ['linear'], m, s[0], r[0], s[1], r[1], s[2], r[2]];
         }}
         function radiusExpr(spec) {{
-          return spec.magnitude_field ? magExpr(spec, 3, 9, 22) : normalRadius(spec);
+          return spec.magnitude_field ? magExpr(spec) : normalRadius(spec);
         }}
         function colorExpr(spec) {{
-          if (!spec.magnitude_field) return spec.color;
+          if (!spec.magnitude_field || !spec.magnitude_color) return spec.color;
           const m = ['coalesce', ['to-number', ['get', spec.magnitude_field]], 0];
           return ['interpolate', ['linear'], m,
             4, '#fee08b', 5, '#fdae61', 6, '#f46d43', 7, '#d73027', 8, '#a50026'];

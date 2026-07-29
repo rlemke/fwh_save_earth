@@ -91,6 +91,16 @@ duplicating a 35 MB source per band would triple the payload for nothing.
 Drawn low → high so the strongest read on top; `magnitude_field="frp"` scales
 each circle, so a 4,000 MW lava lake looks nothing like a 2 MW field burn.
 
+⚠️ **The circle scale must use FRP stops, not the defaults.** `LayerSpec`'s
+magnitude defaults are earthquake-tuned (Richter 4/6/8 → 3/9/22 px). FRP runs
+0–4000 MW, so on those defaults every detection above 8 MW pinned at the 22 px
+cap — measured at **100% of drawn dots**, median radius 22 px, rendering the map
+as one solid blob. The fire layers set `magnitude_stops=(5, 100, 1000)` /
+`magnitude_radii=(2, 5, 10)`, which gives median 2.5 px, p90 4.2 px and lets a
+genuinely large fire stand out. They also set `magnitude_color=False`: colour
+already encodes confidence here, and the magnitude ramp was overriding it so the
+legend disagreed with the dots.
+
 ## Run it
 
 ```bash

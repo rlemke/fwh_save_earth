@@ -130,3 +130,31 @@ def test_layer_counts_reflect_what_is_drawn_not_what_is_cached(local_storage):
     data = json.loads(re.search(r"const LAYER_DATA = (\{.*?\});\n", html, re.S).group(1))
     inlined = sum(len(v.get("features", [])) for v in data.values())
     assert inlined == sum(counts.values()), "reported counts must equal inlined features"
+
+
+def test_fire_layers_use_frp_stops_not_earthquake_stops(local_storage):
+    """The magnitude scale defaults to Richter 4/6/8 -> 3/9/22 px.
+
+    FRP runs 0-4000 MW, so on those defaults EVERY detection above 8 MW pinned at
+    the 22 px cap -- measured at 100% of drawn dots, median radius 22 px, which
+    rendered the map as one solid blob. The fire layers must therefore carry
+    their own stops, and must NOT take the magnitude colour ramp: their colour
+    already encodes confidence, and the ramp overriding it made the legend
+    disagree with the dots.
+    """
+    from save_earth.handlers.maps.map_handlers import _FIRE_LAYERS
+
+    for layer in _FIRE_LAYERS:
+        assert layer.magnitude_field == "frp"
+        assert layer.magnitude_stops != (4.0, 6.0, 8.0), "still on the earthquake stops"
+        assert max(layer.magnitude_radii) <= 12, "dots would dominate the map"
+        assert layer.magnitude_color is False, "confidence colour must win"
+
+
+def test_earthquake_layer_keeps_the_defaults(local_storage):
+    """The parameterisation must not disturb the map it was tuned for."""
+    from save_earth.handlers.maps.map_handlers import _EARTHQUAKE_LAYER
+
+    assert _EARTHQUAKE_LAYER.magnitude_stops == (4.0, 6.0, 8.0)
+    assert _EARTHQUAKE_LAYER.magnitude_radii == (3.0, 9.0, 22.0)
+    assert _EARTHQUAKE_LAYER.magnitude_color is True
