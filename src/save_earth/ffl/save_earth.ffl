@@ -293,11 +293,10 @@ namespace save_earth.sources {
       * writes one annotated GeoJSON per source. Each plant carries its raw
       * resource value plus a ``siting_score`` (4..8) that the renderer maps onto
       * its yellow->red ramp: dark-red/large = excellent resource (well sited),
-      * yellow/small = poor. Sequence after DownloadPowerPlants by passing its
-      * feature_count as dependency_signal. */
+      * yellow/small = poor. Order it with `after <DownloadPowerPlants step>` —
+      * it reads what that step cached, so no value flows between them. */
     event facet AnnotateRenewableSiting(
-        force: Boolean = false,
-        dependency_signal: Int = 0
+        force: Boolean = false
     ) => (
         cache_type: String,
         feature_count: Int,
@@ -353,11 +352,10 @@ namespace save_earth.sources {
     }
 
     /** Merge the per-tile transmission GeoJSONs into one ≥500 kV layer, deduping
-      * lines that cross a tile border by OSM way id. ``dependency_signal``
-      * sequences this strictly after the tile fan-out completes. */
+      * lines that cross a tile border by OSM way id. Order it with
+      * ``after <scan step>``; on a fan-out step that waits for every tile. */
     event facet MergeTransmission(
-        tiles: Json,
-        dependency_signal: Int = 0
+        tiles: Json
     ) => (
         cache_type: String,
         feature_count: Int
@@ -557,7 +555,6 @@ namespace save_earth.maps {
         zoom: Double = 4.0,
         basemap_url: String = "",
         basemap_attribution: String = "",
-        dependency_signal: Int = 0,
         only_layers: String = "",
         attribution_workflow: String = "",
         attribution_ffl_url: String = "",
@@ -626,9 +623,8 @@ namespace save_earth.workflows {
                 detail = "epa brownfields download failed"
             )
         }
-        // dependency_signal pins the map build after every download
-        // by referencing a field each produced — the runtime
-        // resolves that as a data-flow edge.
+        // `after` pins the map build behind every download: they share only
+        // the cache, so there is no data edge for the runtime to infer.
         map = BuildMap(
             region = "global"
         ) after olm, superfund, brownfields catch {
@@ -689,9 +685,8 @@ namespace save_earth.workflows {
       * Downloads the OSM nuclear dataset, then renders the auto-
       * discovering MapLibre map. The nuclear layer is registered with
       * no curated field list, so clicking any reactor opens a popup
-      * showing every attribute the dataset carries. ``dependency_signal``
-      * references the download's ``feature_count`` so the runtime
-      * sequences the map build strictly after the data is cached. */
+      * showing every attribute the dataset carries. The map build is ordered
+      * with ``after`` behind the download, since it reads only the cache. */
     workflow BuildNuclearReactorMap(
         center_lat: Double = 25.0,
         center_lon: Double = 10.0,
@@ -719,8 +714,8 @@ namespace save_earth.workflows {
             only_layers = "nuclear-reactors",
             attribution_workflow = "save_earth.workflows.BuildNuclearReactorMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "Nuclear power reactors and plants worldwide, from OpenStreetMap. Click any site for its full details (operator, electrical output, start date, reactor type, status, ...) after reactors."
-        ) catch {
+            description = "Nuclear power reactors and plants worldwide, from OpenStreetMap. Click any site for its full details (operator, electrical output, start date, reactor type, status, ...)."
+        ) after reactors catch {
             yield BuildNuclearReactorMap(
                 status = "failed",
                 html_path = "",
@@ -741,9 +736,8 @@ namespace save_earth.workflows {
       * layer is registered with no curated field list, so clicking any
       * camera opens a popup showing every attribute the dataset carries
       * (manufacturer, operator, direction, surveillance:zone, ...).
-      * ``dependency_signal`` references the download's ``feature_count``
-      * so the runtime sequences the map build strictly after the data is
-      * cached. Camera LOCATIONS only — no video/plate data. */
+      * The map build is ordered with ``after`` behind the download, since it
+      * reads only the cache. Camera LOCATIONS only — no video/plate data. */
     workflow BuildALPRCameraMap(
         center_lat: Double = 39.8283,
         center_lon: Double = -98.5795,
@@ -772,8 +766,8 @@ namespace save_earth.workflows {
             max_inline_features = 130000,
             attribution_workflow = "save_earth.workflows.BuildALPRCameraMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "ALPR (Automatic License Plate Reader) after cameras surveillance camera locations worldwide, crowd-sourced in OpenStreetMap by the DeFlock project. Split by vendor (Flock Safety / Motorola / other) with a coverage-density heatmap. Camera LOCATIONS only, not video or plate data. Click any camera for its full details (manufacturer, operator, direction, mounting, ...)."
-        ) catch {
+            description = "ALPR (Automatic License Plate Reader) surveillance camera locations worldwide, crowd-sourced in OpenStreetMap by the DeFlock project. Split by vendor (Flock Safety / Motorola / other) with a coverage-density heatmap. Camera LOCATIONS only, not video or plate data. Click any camera for its full details (manufacturer, operator, direction, mounting, ...)."
+        ) after cameras catch {
             yield BuildALPRCameraMap(
                 status = "failed",
                 html_path = "",
@@ -814,8 +808,8 @@ namespace save_earth.workflows {
             only_layers = "nuclear-test-sites,missile-silos",
             attribution_workflow = "save_earth.workflows.BuildNuclearSitesMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "Nuclear test sites and missile silos worldwide, from OpenStreetMap. Toggle each layer with the checkboxes in the Layers panel. These are publicly-tagged, geographically-fixed features (the same locations arms-control groups publish for transparency) after sites; OSM coverage is community-driven and incomplete, especially for silos. Click any site for its full details."
-        ) catch {
+            description = "Nuclear test sites and missile silos worldwide, from OpenStreetMap. Toggle each layer with the checkboxes in the Layers panel. These are publicly-tagged, geographically-fixed features (the same locations arms-control groups publish for transparency); OSM coverage is community-driven and incomplete, especially for silos. Click any site for its full details."
+        ) after sites catch {
             yield BuildNuclearSitesMap(status = "failed", html_path = "",
                 detail = "map build failed")
         }
@@ -859,8 +853,8 @@ namespace save_earth.workflows {
             only_layers = "aquifers,data-centers",
             attribution_workflow = "save_earth.workflows.BuildDataCenterWaterMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "US data centers (OpenStreetMap) after dc, aq overlaid on principal-aquifer polygons (USGS). Data centers use large volumes of water for cooling, so siting them over stressed groundwater is a growing concern. OSM data-center coverage is incomplete, and no open dataset of PROPOSED data centers exists (they are tracked via news and zoning filings) - so this shows existing, mapped facilities only. Click a data center for its full details, or an aquifer for its name."
-        ) catch {
+            description = "US data centers (OpenStreetMap) overlaid on principal-aquifer polygons (USGS). Data centers use large volumes of water for cooling, so siting them over stressed groundwater is a growing concern. OSM data-center coverage is incomplete, and no open dataset of PROPOSED data centers exists (they are tracked via news and zoning filings) - so this shows existing, mapped facilities only. Click a data center for its full details, or an aquifer for its name."
+        ) after dc, aq catch {
             yield BuildDataCenterWaterMap(status = "failed", html_path = "",
                 detail = "map build failed")
         }
@@ -906,8 +900,8 @@ namespace save_earth.workflows {
             only_layers = "enclave-*",
             attribution_workflow = "save_earth.workflows.BuildEnclaveMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "Heritage-named enclave neighbourhoods worldwide, from OpenStreetMap (Chinatown, Japantown, Little Italy, Koreatown, ...) after enclaves. Each heritage is a separate coloured layer - toggle them in the legend. OSM has no ethnicity attribute; the neighbourhood name is the signal. Click any point for all its OSM tags plus any wikidata link."
-        ) catch {
+            description = "Heritage-named enclave neighbourhoods worldwide, from OpenStreetMap (Chinatown, Japantown, Little Italy, Koreatown, ...). Each heritage is a separate coloured layer - toggle them in the legend. OSM has no ethnicity attribute; the neighbourhood name is the signal. Click any point for all its OSM tags plus any wikidata link."
+        ) after enclaves catch {
             yield BuildEnclaveMap(
                 status = "failed",
                 html_path = "",
@@ -945,8 +939,8 @@ namespace save_earth.workflows {
             only_layers = "power-*",
             attribution_workflow = "save_earth.workflows.BuildPowerMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "World power infrastructure: power plants by source (hydro/dams, coal, natural gas, solar, wind, nuclear) after plants, lines from the WRI Global Power Plant Database, plus the major transmission backbone from OpenStreetMap. NOTE: only the highest-voltage (>=500 kV) lines are shown, so a line often looks like it just 'ends' in mid-air - that is where it steps down to the lower-voltage (400/230 kV) lines that are not shown but carry the power the rest of the way to substations and cities. (OSM also has no plant-to-substation linkage at world scale.) Toggle each source in the legend; click any plant or line for its full record. Cached: re-runs reuse the cache unless force=true."
-        ) catch {
+            description = "World power infrastructure: power plants by source (hydro/dams, coal, natural gas, solar, wind, nuclear) from the WRI Global Power Plant Database, plus the major transmission backbone from OpenStreetMap. NOTE: only the highest-voltage (>=500 kV) lines are shown, so a line often looks like it just 'ends' in mid-air - that is where it steps down to the lower-voltage (400/230 kV) lines that are not shown but carry the power the rest of the way to substations and cities. (OSM also has no plant-to-substation linkage at world scale.) Toggle each source in the legend; click any plant or line for its full record. Cached: re-runs reuse the cache unless force=true."
+        ) after plants, lines catch {
             yield BuildPowerMap(status = "failed", html_path = "", detail = "map build failed")
         }
         yield BuildPowerMap(
@@ -984,8 +978,8 @@ namespace save_earth.workflows {
             only_layers = "siting-*",
             attribution_workflow = "save_earth.workflows.BuildRenewableSitingMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "Renewable-energy siting: solar and wind power plants (WRI Global Power Plant Database) after sited coloured by the local RESOURCE - how good the sun/wind actually is where each plant sits, from NASA POWER's 20-year climatology (solar GHI / 50 m wind speed). Larger, darker-red points sit on a better resource (well sited); smaller, yellow points sit on a poorer one. Toggle the solar/wind layers in the legend; click any plant for its full WRI record plus the sampled resource value. Cached: re-runs reuse the cache unless force=true."
-        ) catch {
+            description = "Renewable-energy siting: solar and wind power plants (WRI Global Power Plant Database) coloured by the local RESOURCE - how good the sun/wind actually is where each plant sits, from NASA POWER's 20-year climatology (solar GHI / 50 m wind speed). Larger, darker-red points sit on a better resource (well sited); smaller, yellow points sit on a poorer one. Toggle the solar/wind layers in the legend; click any plant for its full WRI record plus the sampled resource value. Cached: re-runs reuse the cache unless force=true."
+        ) after sited catch {
             yield BuildRenewableSitingMap(status = "failed", html_path = "", detail = "map build failed")
         }
         yield BuildRenewableSitingMap(
@@ -1029,8 +1023,8 @@ namespace save_earth.workflows {
             only_layers = "volcanoes",
             attribution_workflow = "save_earth.workflows.BuildVolcanoMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "Major (notable) after volcanoes volcanoes worldwide, from OpenStreetMap - natural=volcano features with a Wikipedia/Wikidata entry. Click any volcano for its details (elevation, type, status, ...)."
-        ) catch {
+            description = "Major (notable) volcanoes worldwide, from OpenStreetMap - natural=volcano features with a Wikipedia/Wikidata entry. Click any volcano for its details (elevation, type, status, ...)."
+        ) after volcanoes catch {
             yield BuildVolcanoMap(
                 status = "failed",
                 html_path = "",
@@ -1077,8 +1071,8 @@ namespace save_earth.workflows {
             only_layers = "lgbtq",
             attribution_workflow = "save_earth.workflows.BuildLgbtqVenueMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "LGBTQ+ bars, pubs, clubs and restaurants worldwide, from OpenStreetMap (lgbtq / gay tags) after venues. Click any venue for its full details (amenity, opening hours, website, ...)."
-        ) catch {
+            description = "LGBTQ+ bars, pubs, clubs and restaurants worldwide, from OpenStreetMap (lgbtq / gay tags). Click any venue for its full details (amenity, opening hours, website, ...)."
+        ) after venues catch {
             yield BuildLgbtqVenueMap(
                 status = "failed",
                 html_path = "",
@@ -1125,8 +1119,8 @@ namespace save_earth.workflows {
             only_layers = "tesla",
             attribution_workflow = "save_earth.workflows.BuildTeslaChargerMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "Tesla charging stations worldwide (Superchargers + destination chargers) after chargers, from OpenStreetMap. Click any charger for its full details (operator, capacity, socket types, opening hours, ...)."
-        ) catch {
+            description = "Tesla charging stations worldwide (Superchargers + destination chargers), from OpenStreetMap. Click any charger for its full details (operator, capacity, socket types, opening hours, ...)."
+        ) after chargers catch {
             yield BuildTeslaChargerMap(
                 status = "failed",
                 html_path = "",
@@ -1173,8 +1167,8 @@ namespace save_earth.workflows {
             only_layers = "telescopes",
             attribution_workflow = "save_earth.workflows.BuildTelescopeMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "Named research telescopes worldwide (optical + radio) after scopes, from OpenStreetMap. Click any telescope for its full details (type, diameter, operator, ...)."
-        ) catch {
+            description = "Named research telescopes worldwide (optical + radio), from OpenStreetMap. Click any telescope for its full details (type, diameter, operator, ...)."
+        ) after scopes catch {
             yield BuildTelescopeMap(
                 status = "failed",
                 html_path = "",
@@ -1230,8 +1224,8 @@ namespace save_earth.workflows {
             only_layers = "faults,earthquakes",
             attribution_workflow = "save_earth.workflows.BuildSeismicMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "Recent earthquakes (USGS M4.5+, past 30 days) after faults, quakes, sized and coloured by magnitude, over the tectonic plate boundaries (the major global fault lines, Bird 2002). Quakes cluster along the boundaries. Click any quake or fault for its full details."
-        ) catch {
+            description = "Recent earthquakes (USGS M4.5+, past 30 days), sized and coloured by magnitude, over the tectonic plate boundaries (the major global fault lines, Bird 2002). Quakes cluster along the boundaries. Click any quake or fault for its full details."
+        ) after faults, quakes catch {
             yield BuildSeismicMap(
                 status = "failed",
                 html_path = "",
@@ -1290,8 +1284,8 @@ namespace save_earth.workflows {
             only_layers = "semiconductor-fabs",
             attribution_workflow = "save_earth.workflows.BuildSemiconductorMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
-            description = "Semiconductor fabrication plants worldwide, combining OpenStreetMap (industrial=semiconductor / man_made=works + product) after merged and Wikidata (semiconductor fabrication plants, with operator / country / inception / owner). Each plant's popup shows its source fields. Open-data coverage is sparse and uneven (many fabs are unmapped); the two sources are unioned for fuller coverage."
-        )
+            description = "Semiconductor fabrication plants worldwide, combining OpenStreetMap (industrial=semiconductor / man_made=works + product) and Wikidata (semiconductor fabrication plants, with operator / country / inception / owner). Each plant's popup shows its source fields. Open-data coverage is sparse and uneven (many fabs are unmapped); the two sources are unioned for fuller coverage."
+        ) after merged
         yield BuildSemiconductorMap(
             status = "completed",
             html_path = map.html_path,
