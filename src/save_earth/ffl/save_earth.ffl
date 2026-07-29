@@ -528,7 +528,8 @@ namespace save_earth.sources {
       * Near-real-time data, so the cache holds for ~1 hour rather than days. */
     event facet DownloadActiveFire(
         force: Boolean = false,
-        use_mock: Boolean = false
+        use_mock: Boolean = false,
+        region: String = "world"
     ) => (
         cache_type: String,
         relative_path: String,
@@ -542,7 +543,8 @@ namespace save_earth.sources {
         nominal_count: Int,
         low_count: Int,
         acquired_from: String,
-        acquired_to: String
+        acquired_to: String,
+        region: String
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate") with Timeout(minutes = 15)
 
     /** Enumerate admin-0 countries (Natural Earth) for the per-country fab
@@ -1366,6 +1368,76 @@ namespace save_earth.workflows {
             status = "completed",
             html_path = map.html_path,
             detail = perims.active_count ++ " active US perimeters (" ++ perims.acres_total ++ " acres); " ++ fires.feature_count ++ " thermal anomalies detected " ++ fires.acquired_from ++ " to " ++ fires.acquired_to ++ " (" ++ fires.high_count ++ " high / " ++ fires.nominal_count ++ " nominal / " ++ fires.low_count ++ " low confidence); map draws " ++ map.layer_count ++ " band(s), strongest first"
+        )
+    }
+
+    /** US fire map: NIFC perimeters + US-scoped thermal anomalies on the USGS
+      * topographic basemap.
+      *
+      * The US companion to BuildWildfireMap. Three differences that matter:
+      *
+      * 1. Basemap is USGS The National Map (public domain, 24 zoom levels) rather
+      *    than the world CARTO raster — the topo look, legitimately. We do NOT use
+      *    CalTopo tiles: that is a subscription product with no third-party tile
+      *    permission.
+      * 2. Detections come from the REGION-scoped cache (`region = "us"`). The world
+      *    file is FRP-sorted globally and the renderer caps by a plain slice, so a
+      *    US map built from it kept only 24% of US detections. Scoped, they all fit.
+      * 3. Perimeters are the point of this map: named incidents with acreage and
+      *    containment, which the satellite detections cannot give. */
+    workflow BuildUsFireMap(
+        center_lat: Double = 39.0,
+        center_lon: Double = -98.0,
+        zoom: Double = 4.0,
+        max_inline_features: Int = 40000,
+        use_mock: Boolean = false
+    ) => (
+        status: String,
+        html_path: String,
+        detail: String
+    ) andThen {
+        perims = DownloadFirePerimeters(
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildUsFireMap(
+                status = "failed",
+                html_path = "",
+                detail = "NIFC perimeter download failed"
+            )
+        }
+        fires = DownloadActiveFire(
+            use_mock = $.use_mock,
+            region = "us"
+        ) catch {
+            yield BuildUsFireMap(
+                status = "partial",
+                html_path = "",
+                detail = "US detection download failed; perimeters unaffected"
+            )
+        }
+        map = BuildMap(
+            region = "us-fire",
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            only_layers = "fire-perimeter-*,usfire-*",
+            max_inline_features = $.max_inline_features,
+            basemap_url = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}",
+            basemap_attribution = "Basemap: USGS The National Map (public domain)",
+            attribution_workflow = "save_earth.workflows.BuildUsFireMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "US wildfire perimeters (NIFC/WFIGS interagency feed) over the USGS topographic basemap, with US thermal-anomaly detections from NASA FIRMS (VIIRS 375 m + MODIS 1 km, past 24 hours). Perimeters are split by containment: red = active (0-99% contained), amber = containment not reported, grey = 100% contained. Toggle each in the Layers panel. Perimeter polygons are generalised to about 111 m for page weight - use the WFIGS source for operational work. Detections are thermal anomalies, not confirmed wildfires: gas flares, industrial heat and agricultural burning register identically. Click any perimeter for its incident name, acreage, containment, cause and discovery date; click any detection for its sensor, confidence and radiative power."
+        ) after perims, fires catch {
+            yield BuildUsFireMap(
+                status = "failed",
+                html_path = "",
+                detail = "map build failed"
+            )
+        }
+        yield BuildUsFireMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = perims.active_count ++ " active + " ++ perims.contained_count ++ " contained US perimeters (" ++ perims.acres_total ++ " acres); " ++ fires.feature_count ++ " US thermal anomalies"
         )
     }
 

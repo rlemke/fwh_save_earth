@@ -382,6 +382,34 @@ _FIRE_LAYERS = [
 ]
 
 
+# US-scoped detection layers. Same styling as the world bands, but reading the
+# REGION-scoped cache file — because the world file is FRP-sorted globally and the
+# renderer's cap is a plain slice, so a US map built from it kept only 2,701 of
+# 11,092 US detections (24%). Against the US file all ~14k fit under the cap.
+_US_FIRE_LAYERS = [
+    map_render.LayerSpec(
+        name=f"usfire-{band}",
+        title=title,
+        source_cache_type=wildfire.CACHE_TYPE,
+        source_relative_path=wildfire.relative_path_for("us"),
+        color=color,
+        radius=radius,
+        magnitude_field="frp",
+        magnitude_stops=(5.0, 100.0, 1000.0),
+        magnitude_radii=(2.0, 5.0, 10.0),
+        magnitude_color=False,
+        filter_field="confidence_band",
+        filter_value=band,
+        description_fields=_FIRE_DESCRIPTION_FIELDS,
+    )
+    for band, title, color, radius in (
+        ("low", "Thermal anomalies - low confidence (24h)", "#ffd54f", 3),
+        ("nominal", "Thermal anomalies - nominal confidence (24h)", "#fb8c00", 4),
+        ("high", "Thermal anomalies - high confidence (24h)", "#d50000", 5),
+    )
+]
+
+
 _OLM_DESCRIPTION_FIELDS = [
     "point_count",
     "point_count_abbreviated",
@@ -548,6 +576,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
             _EARTHQUAKE_LAYER,
             *_PERIMETER_LAYERS,
             *_FIRE_LAYERS,
+            *_US_FIRE_LAYERS,
         ]
         + _EPA_LAYERS
         + _openlittermap_layers(storage)

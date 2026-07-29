@@ -141,6 +141,34 @@ Two gotchas worth knowing:
   shared ArcGIS quota is exhausted. A client checking only the status code caches
   an error document as data. `_fetch_page` inspects the body and backs off.
 
+## The US map — `BuildUsFireMap`
+
+    save_earth.workflows.BuildUsFireMap
+      -> DownloadFirePerimeters                  (NIFC/WFIGS, US only)
+      -> DownloadActiveFire(region = "us")       (US-scoped FIRMS)
+      -> BuildMap  only_layers="fire-perimeter-*,usfire-*"  after perims, fires
+                   basemap = USGS The National Map
+
+Perimeters over the USGS topographic basemap, with US detections on top —
+6 layers, ~4.7 MB, no truncation.
+
+**Why a region-scoped cache exists.** The world collection is FRP-sorted
+*globally* and the renderer's cap is a plain slice, so global rank decides what
+survives. A US map built from the world file kept only **2,701 of 11,092 US
+detections (24%)** — it would have looked like the US was barely burning.
+`region = "us"` writes its own cache entry (`active_fire_us.geojson`), so the cap
+applies to US data: all **14,161** detections fit under the 40k default.
+
+`REGIONS` holds the bboxes; `relative_path_for(region)` gives the filename, and
+`"world"` deliberately keeps the unsuffixed name so nothing existing moved. The
+western Aleutians cross the antimeridian and are excluded rather than
+special-cased.
+
+⚠️ **Mock and real share a region's cache key.** Running with `use_mock=True`
+leaves 3 mock features in `active_fire_us.geojson` for the next hour, and a
+following real run is a cache hit — the US map rendered 1 detection until forced.
+Same shape as the NOAA mock-cache tell: `--force` after any mock run.
+
 ## Basemap: why not CalTopo
 
 CalTopo's layers are a **subscription product**; pointing this map at their tile

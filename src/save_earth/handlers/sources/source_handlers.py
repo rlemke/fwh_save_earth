@@ -454,8 +454,9 @@ def handle_download_active_fire(params: dict[str, Any]) -> dict[str, Any]:
     use_mock = bool(params.get("use_mock", False))
     step_log = params.get("_step_log")
 
-    _step_log(step_log, f"DownloadActiveFire force={force} use_mock={use_mock}")
-    res = wildfire.download_active_fire(force=force, use_mock=use_mock)
+    region = str(params.get("region") or "world")
+    _step_log(step_log, f"DownloadActiveFire force={force} use_mock={use_mock} region={region}")
+    res = wildfire.download_active_fire(force=force, use_mock=use_mock, region=region)
     status = "cache" if res.was_cached else ("mock" if res.used_mock else "download")
     bands = res.band_counts or {}
     _step_log(
@@ -473,6 +474,7 @@ def handle_download_active_fire(params: dict[str, Any]) -> dict[str, Any]:
         "low_count": int(bands.get("low", 0)),
         "acquired_from": res.acquired_from,
         "acquired_to": res.acquired_to,
+        "region": region,
     }
 
 

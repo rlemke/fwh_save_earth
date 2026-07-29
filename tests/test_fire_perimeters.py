@@ -99,3 +99,47 @@ def test_map_renders_perimeters_beneath_detections(local_storage):
     last_perimeter = max(i for i, x in enumerate(ids) if "perimeter" in x)
     first_point = min(i for i, x in enumerate(ids) if "perimeter" not in x)
     assert last_perimeter < first_point, f"points must draw on top of polygons: {ids}"
+
+
+def test_us_region_scoping_beats_the_global_cap():
+    """A US map built from the WORLD file keeps only 24% of US detections.
+
+    The world collection is FRP-sorted globally and the renderer's cap is a plain
+    slice, so global rank decides what survives: measured 2,701 of 11,092 US
+    detections. A region gets its own cache entry so the cap applies to ITS data.
+    """
+    from save_earth.handlers.shared.save_earth_utils import wildfire
+
+    assert wildfire.relative_path_for("world") == wildfire.RELATIVE_PATH
+    assert wildfire.relative_path_for("us") == "active_fire_us.geojson"
+    assert wildfire.relative_path_for("us") != wildfire.relative_path_for("world")
+    with pytest.raises(ValueError):
+        wildfire.relative_path_for("atlantis")
+
+
+def test_us_layers_read_the_region_scoped_file():
+    from save_earth.handlers.maps.map_handlers import _FIRE_LAYERS, _US_FIRE_LAYERS
+    from save_earth.handlers.shared.save_earth_utils import wildfire
+
+    assert len(_US_FIRE_LAYERS) == 3
+    for layer in _US_FIRE_LAYERS:
+        assert layer.source_relative_path == wildfire.relative_path_for("us")
+        assert layer.name.startswith("usfire-")
+    # The world layers must NOT be selected by the US map's only_layers, and vice
+    # versa — that separation is the whole point of the region scoping.
+    for layer in _FIRE_LAYERS:
+        assert layer.source_relative_path == wildfire.relative_path_for("world")
+        assert not layer.name.startswith("usfire-")
+
+
+def test_us_bbox_filter_excludes_non_us_points():
+    from save_earth.handlers.shared.save_earth_utils import wildfire
+
+    box = wildfire.REGIONS["us"]
+    mk = lambda lon, lat: {"geometry": {"coordinates": [lon, lat]}}
+    assert wildfire._in_bbox(mk(-120.5, 38.7), box)   # California
+    assert wildfire._in_bbox(mk(-150.0, 61.0), box)   # Alaska
+    assert wildfire._in_bbox(mk(-156.0, 19.5), box)   # Hawaii
+    assert not wildfire._in_bbox(mk(133.9, -23.4), box)   # Australia
+    assert not wildfire._in_bbox(mk(25.1, -12.1), box)    # Zambia
+    assert not wildfire._in_bbox(mk(-3.7, 40.4), box)     # Spain

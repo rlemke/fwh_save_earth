@@ -69,6 +69,31 @@ READ_TIMEOUT = 300
 
 CACHE_TYPE = "active_fire"
 RELATIVE_PATH = "active_fire.geojson"
+
+# Region scoping. The cached collection is FRP-sorted GLOBALLY, and the renderer
+# caps inlined features with a plain slice — so a US-focused map built from the
+# world file keeps the world's strongest detections, not the US's. Measured: only
+# 2,701 of 11,092 US detections (24%) survived the global 40k cap. A region gets
+# its own cache entry so the cap applies to ITS data.
+#   (lon_min, lat_min, lon_max, lat_max); None = whole world.
+REGIONS: dict[str, tuple[float, float, float, float] | None] = {
+    "world": None,
+    # CONUS + Alaska + Hawaii. The western Aleutians cross the antimeridian and
+    # are excluded rather than special-cased — a handful of detections at most.
+    "us": (-170.0, 18.0, -66.0, 72.0),
+}
+
+
+def relative_path_for(region: str = "world") -> str:
+    """Cache filename for a region — the world keeps the unsuffixed name."""
+    if region not in REGIONS:
+        raise ValueError(f"unknown region {region!r}; known: {sorted(REGIONS)}")
+    return RELATIVE_PATH if region == "world" else f"active_fire_{region}.geojson"
+
+
+def _in_bbox(feat: dict[str, Any], box: tuple[float, float, float, float]) -> bool:
+    lon, lat = feat["geometry"]["coordinates"]
+    return box[0] <= lon <= box[2] and box[1] <= lat <= box[3]
 # NRT data: the whole point is currency. The upstream feeds refresh roughly
 # hourly as overpasses are processed.
 MAX_AGE_HOURS = 1.0
@@ -129,11 +154,17 @@ def download_active_fire(
     storage: Storage | None = None,
     use_mock: bool = False,
     feeds: tuple[str, ...] = DEFAULT_FEEDS,
+    region: str = "world",
 ) -> DownloadResult:
-    """Fetch the FIRMS 24h global feeds → one normalised, cached GeoJSON."""
+    """Fetch the FIRMS 24h global feeds → one normalised, cached GeoJSON.
+
+    ``region`` scopes the OUTPUT (one fetch, filtered) to its own cache entry so
+    the renderer's inline cap applies to that region's detections — see REGIONS.
+    """
+    rel = relative_path_for(region)
     s = storage or get_storage()
     urls = ",".join(FEEDS[f]["url"] for f in feeds if f in FEEDS)
-    cached = _cache_hit(max_age_hours, force, s, urls)
+    cached = _cache_hit(max_age_hours, force, s, urls, rel)
     if cached is not None:
         return cached
 
@@ -155,6 +186,12 @@ def download_active_fire(
     # Sort by FRP descending — see the module docstring: the renderer's inline
     # cap is a plain slice, so this decides WHICH detections survive a capped
     # map. Strongest-first is the only defensible choice for a fire map.
+    box = REGIONS[region]
+    if box is not None:
+        before = len(features)
+        features = [f for f in features if _in_bbox(f, box)]
+        logger.info("region %s: %d of %d detections in bbox", region, len(features), before)
+
     features.sort(key=lambda f: f["properties"].get("frp") or 0.0, reverse=True)
 
     fc = {
@@ -191,6 +228,8 @@ def download_active_fire(
         source_url=source_url,
         used_mock=used_mock,
         features=features,
+        relative_path=rel,
+        region=region,
     )
 
 
@@ -287,22 +326,23 @@ def _float_or_none(v: Any) -> float | None:
 
 
 def _cache_hit(
-    max_age_hours: float, force: bool, storage: Storage, source_url: str
+    max_age_hours: float, force: bool, storage: Storage, source_url: str,
+    rel: str = RELATIVE_PATH,
 ) -> DownloadResult | None:
     if force:
         return None
     with _lock:
-        side = sidecar.read_sidecar(NAMESPACE, CACHE_TYPE, RELATIVE_PATH, storage)
-        if side and sidecar.exists_and_valid(NAMESPACE, CACHE_TYPE, RELATIVE_PATH, storage):
+        side = sidecar.read_sidecar(NAMESPACE, CACHE_TYPE, rel, storage)
+        if side and sidecar.exists_and_valid(NAMESPACE, CACHE_TYPE, rel, storage):
             age = _age_hours(side.get("generated_at"))
             if age is None or age < max_age_hours:
                 extra = side.get("extra") or {}
                 logger.info("active_fire cache hit (%.2fh old)", age if age is not None else -1.0)
                 return DownloadResult(
                     absolute_path=sidecar.cache_path(
-                        NAMESPACE, CACHE_TYPE, RELATIVE_PATH, storage
+                        NAMESPACE, CACHE_TYPE, rel, storage
                     ),
-                    relative_path=RELATIVE_PATH,
+                    relative_path=rel,
                     size_bytes=side.get("size_bytes", 0),
                     sha256=side.get("sha256", ""),
                     feature_count=int(extra.get("feature_count", 0)),
@@ -319,10 +359,11 @@ def _cache_hit(
 def _persist(
     body: bytes, storage: Storage, *, source: dict[str, Any], source_url: str,
     used_mock: bool, features: list[dict[str, Any]],
+    relative_path: str = RELATIVE_PATH, region: str = "world",
 ) -> DownloadResult:
     staging = local_staging_subdir(f"{NAMESPACE}/{CACHE_TYPE}")
     os.makedirs(staging, exist_ok=True)
-    stage_path = os.path.join(staging, f"{RELATIVE_PATH}.stage-{os.getpid()}")
+    stage_path = os.path.join(staging, f"{relative_path}.stage-{os.getpid()}")
     with open(stage_path, "wb") as f:
         f.write(body)
 
@@ -338,17 +379,18 @@ def _persist(
     acquired_from = min(times) if times else ""
     acquired_to = max(times) if times else ""
 
-    final_path = sidecar.cache_path(NAMESPACE, CACHE_TYPE, RELATIVE_PATH, storage)
+    final_path = sidecar.cache_path(NAMESPACE, CACHE_TYPE, relative_path, storage)
     digest = hashlib.sha256(body).hexdigest()
-    with sidecar.entry_lock(NAMESPACE, CACHE_TYPE, RELATIVE_PATH, storage=storage):
+    with sidecar.entry_lock(NAMESPACE, CACHE_TYPE, relative_path, storage=storage):
         storage.finalize_from_local(stage_path, final_path)
         sidecar.write_sidecar(
-            NAMESPACE, CACHE_TYPE, RELATIVE_PATH,
+            NAMESPACE, CACHE_TYPE, relative_path,
             kind="file", size_bytes=len(body), sha256=digest,
             source=source,
             tool={"name": "wildfire.active_fire", "version": "1.0"},
             extra={
                 "feature_count": len(features),
+                "region": region,
                 "band_counts": bands,
                 "sensor_counts": sensors,
                 "acquired_from": acquired_from,
@@ -359,7 +401,7 @@ def _persist(
 
     return DownloadResult(
         absolute_path=final_path,
-        relative_path=RELATIVE_PATH,
+        relative_path=relative_path,
         size_bytes=len(body),
         sha256=digest,
         feature_count=len(features),
