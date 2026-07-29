@@ -22,8 +22,8 @@ dark-red/large = excellent resource (well sited), yellow/small = poor.
 `siting.annotate` (`siting.py`):
 
 1. Reads the cached `solar.geojson` / `wind.geojson` from the `power` cache (so it
-   depends on `DownloadPowerPlants` having run — the FFL sequences it via
-   `dependency_signal = plants.feature_count`).
+   depends on `DownloadPowerPlants` having run — the FFL orders it with
+   `after plants`).
 2. For each of the two `RESOURCES` — `("solar", "siting_solar.geojson",
    "ALLSKY_SFC_SW_DWN", "ghi_kwh_m2_day", (2.5, 6.5))` and `("wind",
    "siting_wind.geojson", "WS50M", "wind_speed_ms", (3.0, 11.0))` — it de-duplicates
@@ -66,11 +66,12 @@ connection reuse without concurrency.
 
 | Facet / workflow | Kind | Effect/Cost | Purpose |
 |---|---|---|---|
-| `AnnotateRenewableSiting(force, dependency_signal)` | event | external / expensive, `Timeout(30m)` | Sample NASA POWER resource at each solar/wind plant, write siting-scored layers. |
+| `AnnotateRenewableSiting(force)` | event | external / expensive, `Timeout(30m)` | Sample NASA POWER resource at each solar/wind plant, write siting-scored layers. |
 | `BuildRenewableSitingMap(force, center_lat, center_lon, zoom)` | workflow | — | Download plants → annotate → render `siting-*`. |
 
 Returns `(cache_type, feature_count, cells_sampled, was_cached, source_url)`.
-`dependency_signal` sequences it strictly after `DownloadPowerPlants`.
+Callers order it with `after` — it reads what `DownloadPowerPlants` cached and takes
+no value from it.
 
 ## Cache / output
 

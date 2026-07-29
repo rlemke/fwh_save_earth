@@ -19,7 +19,7 @@ density heatmaps, magnitude-scaled circles, shared-source filters).
 | Spec | What it covers |
 |------|----------------|
 | [map-rendering.md](map-rendering.md) | **Flagship.** The MapLibre HTML renderer + `BuildMap`: geometry types (circle/line/fill/heatmap), magnitude circles, shared-source `filter_field` splits, popups/search/legend, basemap + provenance. |
-| [workflows.md](workflows.md) | The download-then-build workflow layer: parallel downloads, per-download `catch`, `dependency_signal` sequencing, `only_layers` scoping — the full `Build*Map` catalog. |
+| [workflows.md](workflows.md) | The download-then-build workflow layer: parallel downloads, per-download `catch`, `after` sequencing, `only_layers` scoping — the full `Build*Map` catalog. |
 | [cache-and-storage.md](cache-and-storage.md) | The sidecar cache, `FW_STORAGE` backends (local/hdfs/s3-MinIO), the CLI↔handler shim, staging→finalize, and packaging (`facetwork.domains` + `catalog.yaml`). |
 
 ## Sources

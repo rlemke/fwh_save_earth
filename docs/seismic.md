@@ -36,8 +36,7 @@ function:
   (`FAULTS_MAX_AGE_HOURS = 24*90`).
 
 `BuildSeismicMap` downloads both (each in a `catch`), then calls `BuildMap` with
-`only_layers="faults,earthquakes"` and `dependency_signal = faults.feature_count +
-quakes.feature_count`.
+`only_layers="faults,earthquakes"`, ordered `after faults, quakes`.
 
 Data shape: `USGS/PB2002 GeoJSON → cached FeatureCollection → inlined MapLibre
 line + magnitude-circle layers`.

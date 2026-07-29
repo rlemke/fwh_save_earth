@@ -174,7 +174,7 @@ Every CLI tool has a matching FFL event facet in `../ffl/save_earth.ffl`:
 | `download-tri` | `save_earth.sources.DownloadTri(active_only, force, use_mock)` |
 | `download-nuclear-reactors` | `save_earth.sources.DownloadNuclearReactors(force, use_mock)` |
 | `download-alpr-cameras` | `save_earth.sources.DownloadALPRCameras(force, use_mock)` |
-| `build-save-earth-map` | `save_earth.maps.BuildMap(region, center_lat, center_lon, zoom, basemap_url, basemap_attribution, dependency_signal)` |
+| `build-save-earth-map` | `save_earth.maps.BuildMap(region, center_lat, center_lon, zoom, basemap_url, basemap_attribution)` |
 
 Workflows:
 

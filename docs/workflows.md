@@ -24,10 +24,10 @@ Every map-build workflow follows the same shape (see `BuildSeismicMap`,
 2. **`catch` per download** — each download is wrapped in a `catch { yield … }` that
    yields a terminal `status` (`"partial_failure"` / `"failed"`) with a describing
    `detail`, so one upstream outage degrades gracefully instead of failing the run.
-3. **`BuildMap` step** — pinned *after* the downloads by
-   `dependency_signal = <download>.feature_count [+ …]`. Referencing a field each
-   download produced makes the runtime resolve a data-flow edge, guaranteeing the
-   map build sees the cached layers. Most workflows also pass `only_layers` to render
+3. **`BuildMap` step** — pinned *after* the downloads with `after <download> [, …]`.
+   The render takes no value from them (it reads the cache they wrote), so the edge
+   is invisible to the compiler and the clause is what guarantees the map build sees
+   the cached layers. Most workflows also pass `only_layers` to render
    just their family, plus `attribution_workflow` / `attribution_ffl_url` /
    `description` for the map's provenance footer and "About this data" modal.
 4. **Terminal `yield`** — a final `yield <Workflow>(status="completed", html_path=…,
@@ -92,9 +92,9 @@ write their per-source caches.
 
 ## Gotchas & notes
 
-- **`dependency_signal` is the sequencing mechanism.** Dropping it would let
+- **The `after` clause is the sequencing mechanism.** Dropping it would let
   `BuildMap` run before the downloads finish and render zero layers. Every workflow
-  sums the relevant `feature_count`s into it.
+  names the relevant downloads in it — `after a, b, c` waits for all of them.
 - **`catch` yields a *terminal* status, it does not retry.** Transient retries are
   the `RetryPolicy` mixin on the download facets; `catch` is the last-resort
   graceful-degradation path.

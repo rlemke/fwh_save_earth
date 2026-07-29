@@ -75,7 +75,7 @@ dedupes per-tile GeoJSONs by OSM way id.
 | `ListTransmissionTiles()` | event | pure / free | Emit the tile bbox list for the fan-out demo. |
 | `DownloadTransmissionTile(bbox, force)` | event | external / moderate, `Timeout(15m)` | One tile's ≥500 kV lines (fan-out leaf). |
 | `ScanTransmissionTiles(tiles)` | workflow | — | `foreach tile` fan-out demo (not used by `BuildPowerMap`). |
-| `MergeTransmission(tiles, dependency_signal)` | event | io / cheap | Merge per-tile GeoJSONs, dedupe by way id. |
+| `MergeTransmission(tiles)` | event | io / cheap | Merge per-tile GeoJSONs, dedupe by way id. |
 | `BuildPowerMap(force, center_lat, center_lon, zoom)` | workflow | — | Plants + transmission → `power-*` map. |
 
 ## Cache / output

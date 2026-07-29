@@ -57,9 +57,9 @@ per-LayerSpec map layers`.
 layers; the parallelism lives upstream in the source downloads (and, for a couple
 of sources, in per-country/per-tile fan-out — see
 [semiconductor](semiconductor.md) and [power-transmission](power-transmission.md)).
-The map build is sequenced *after* its downloads by the `dependency_signal` param
-(callers pass the summed `feature_count`s), which the runtime resolves as a
-data-flow edge.
+The map build is sequenced *after* its downloads by an `after` clause naming them
+(`after olm, superfund, brownfields`). Nothing flows between download and render —
+they meet in the cache — so the ordering has to be stated rather than inferred.
 
 ## Data & fields
 
@@ -100,7 +100,7 @@ source once and anchors line features (faults) at their first vertex.
 
 | Facet | Kind | Effect/Cost | Purpose |
 |---|---|---|---|
-| `save_earth.maps.BuildMap(region, center_lat, center_lon, zoom, basemap_url, basemap_attribution, dependency_signal, only_layers, attribution_workflow, attribution_ffl_url, description, max_inline_features)` | event | io / cheap | Auto-discover every cached layer (or the `only_layers` subset) and render one MapLibre HTML bundle. |
+| `save_earth.maps.BuildMap(region, center_lat, center_lon, zoom, basemap_url, basemap_attribution, only_layers, attribution_workflow, attribution_ffl_url, description, max_inline_features)` | event | io / cheap | Auto-discover every cached layer (or the `only_layers` subset) and render one MapLibre HTML bundle. |
 
 Returns `MapBundle` (`region_key, output_dir, html_path, layer_count,
 layer_counts: Json`). Provenance: `attribution_workflow` + `attribution_ffl_url`

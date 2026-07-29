@@ -60,8 +60,8 @@ pick this package up automatically.
 
 The domain is driven from [FFL](https://github.com/rlemke/facetwork/blob/main/docs/reference/language/grammar.md),
 Facetwork's workflow language. A step is `name = Facet(args)`; independent fetches
-run in parallel, and `only_layers` + `dependency_signal` point the generic renderer
-at what they cached:
+run in parallel, `after` orders the render behind them, and `only_layers` points the
+generic renderer at what they cached:
 
 ```ffl
 namespace my.save_earth {
@@ -79,8 +79,8 @@ namespace my.save_earth {
         map = save_earth.maps.BuildMap(
             region = "global",
             zoom = 2.0,
-            only_layers = "earthquakes,faults,volcanoes",
-            dependency_signal = quakes.feature_count)
+            only_layers = "earthquakes,faults,volcanoes"
+            ) after quakes
 
         yield HazardMap(html_path = map.html_path)
     }
@@ -108,7 +108,7 @@ libraries, its facets & workflows, and its cache/output. Start with the flagship
 | Spec | What it covers |
 |------|----------------|
 | [map-rendering](docs/map-rendering.md) | **Flagship.** MapLibre renderer + `BuildMap`: circle/line/fill/heatmap geometry, magnitude circles, shared-source splits, popups/search/legend. |
-| [workflows](docs/workflows.md) | Download-then-build workflows: parallel downloads, `catch`, `dependency_signal`, `only_layers` — the full `Build*Map` catalog. |
+| [workflows](docs/workflows.md) | Download-then-build workflows: parallel downloads, `catch`, `after` ordering, `only_layers` — the full `Build*Map` catalog. |
 | [cache-and-storage](docs/cache-and-storage.md) | Sidecar cache, `FW_STORAGE` backends (local/hdfs/s3-MinIO), CLI↔handler shim, packaging. |
 | [epa-and-litter](docs/epa-and-litter.md) | OpenLitterMap + EPA Superfund/Brownfields + EPA TRI (the founding sources). |
 | [seismic](docs/seismic.md) | USGS earthquakes (magnitude circles) over Bird-2002 fault lines. |

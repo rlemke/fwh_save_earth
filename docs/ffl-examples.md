@@ -31,7 +31,7 @@ adding a source and naming its layer — not writing a new renderer.
 | `save_earth.sources.Download*` | One per dataset: OpenLitterMap, TRI, EPA cleanups, nuclear reactors/sites, ALPR cameras, data centers, aquifers, power plants, volcanoes, earthquakes, faults, telescopes, … |
 | `save_earth.sources.ListTransmissionTiles` / `DownloadTransmissionTile` / `ScanTransmissionTiles` / `MergeTransmission` | A tiled fan-out + merge, for a source too big for one query |
 | `save_earth.sources.ListFabCountries` / `DownloadFabsForCountry` / `MergeFabs` + `save_earth.workflows.FetchFabsByCountry` | Per-country fan-out + merge |
-| `save_earth.maps.BuildMap(region, center_lat, center_lon, zoom, dependency_signal, only_layers, …)` | The generic renderer |
+| `save_earth.maps.BuildMap(region, center_lat, center_lon, zoom, only_layers, …)` | The generic renderer |
 | `save_earth.workflows.Build*Map` | The shipped end-to-end map workflows |
 
 ---
@@ -54,7 +54,7 @@ renderer.
 
 Every FFL workflow needs a `namespace`, a `use` per namespace it calls into, and a
 `yield` back to itself. `only_layers` picks which cached layers the generic
-renderer draws; `dependency_signal` sequences the render after the fetch.
+renderer draws; `after` sequences the render behind the fetch.
 
 ```ffl
 namespace my.save_earth {
@@ -70,8 +70,8 @@ namespace my.save_earth {
         map = save_earth.maps.BuildMap(
             region = "global",
             zoom = 2.0,
-            only_layers = "volcanoes",
-            dependency_signal = volc.feature_count)
+            only_layers = "volcanoes"
+            ) after volc
 
         yield VolcanoMap(html_path = map.html_path, layers = map.layer_count)
     }
@@ -102,17 +102,17 @@ namespace my.save_earth {
         map = save_earth.maps.BuildMap(
             region = "global",
             zoom = 2.0,
-            only_layers = "earthquakes,faults,volcanoes",
-            dependency_signal = quakes.feature_count)
+            only_layers = "earthquakes,faults,volcanoes"
+            ) after quakes
 
         yield HazardMap(html_path = map.html_path)
     }
 }
 ```
 
-> Note: only `quakes` is referenced by the map, so only that one is *guaranteed*
-> to finish first. The shipped workflows chain a `dependency_signal` through the
-> last fetch in the group for exactly this reason — see `BuildGlobalMap`.
+> Note: without an `after` clause naming every fetch, only a step the map actually
+> references is *guaranteed* to finish first. The shipped workflows name them all —
+> `after a, b, c` — for exactly this reason; see `BuildGlobalMap`.
 
 ## 4. A dead source shouldn't sink the map — `catch`
 
@@ -140,8 +140,8 @@ namespace my.save_earth {
 
         map = save_earth.maps.BuildMap(
             region = "global",
-            only_layers = "earthquakes,volcanoes",
-            dependency_signal = volc.feature_count)
+            only_layers = "earthquakes,volcanoes"
+            ) after volc
 
         yield BestEffortHazardMap(
             status = "completed", html_path = map.html_path, detail = "")
@@ -153,7 +153,8 @@ namespace my.save_earth {
 
 `ListTransmissionTiles` emits bbox strings; `ScanTransmissionTiles` fans a fetch
 out over them (one runtime step per tile, in parallel); `MergeTransmission` fans
-them back in, sequenced by `dependency_signal`.
+them back in, ordered with `after` — naming a `foreach` step waits for every
+iteration.
 
 ```ffl
 namespace my.save_earth {
@@ -169,13 +170,13 @@ namespace my.save_earth {
         scanned = save_earth.sources.ScanTransmissionTiles(tiles = tiles.tiles)
 
         merged = save_earth.sources.MergeTransmission(
-            tiles = tiles.tiles,
-            dependency_signal = scanned.count)
+            tiles = tiles.tiles
+            ) after scanned
 
         map = save_earth.maps.BuildMap(
             region = "global",
-            only_layers = "transmission",
-            dependency_signal = merged.feature_count)
+            only_layers = "transmission"
+            ) after merged
 
         yield TransmissionMap(html_path = map.html_path, features = merged.feature_count)
     }
@@ -275,8 +276,7 @@ namespace my.save_earth {
         quakes = save_earth.sources.DownloadEarthquakes() andThen when {
             case $.feature_count >= $$.min_features => {
                 map = save_earth.maps.BuildMap(
-                    region = "global", only_layers = "earthquakes",
-                    dependency_signal = $.feature_count)
+                    region = "global", only_layers = "earthquakes")
                 yield GuardedQuakeMap(status = "completed", html_path = map.html_path)
             }
             case _ => {
@@ -316,7 +316,7 @@ namespace my.save_earth {
 | Read a field of a Json loop variable | `$.c.iso2` |
 | Read a previous step's result | `stepname.field` |
 | Run steps in parallel | write them with no reference between them |
-| Order a render after a fetch | pass an upstream field as `dependency_signal` |
+| Order a render after a fetch | `step = Facet(…) after fetch` (only when no value flows) |
 | Fan out over a list | `workflow W(items: Json) … andThen foreach i in $.items { … }` |
 | Collect fan-out results | `yield W(paths = [step.relative_path])` — the arrays accumulate |
 | Override a mixin for one call | `… with RetryPolicy(max_retries = 8) with Timeout(minutes = 45)` |
