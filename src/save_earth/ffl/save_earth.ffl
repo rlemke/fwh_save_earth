@@ -479,6 +479,39 @@ namespace save_earth.sources {
         used_mock: Boolean
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
+    /** Download current US wildfire PERIMETERS (NIFC / WFIGS interagency feed).
+      *
+      * Incident polygons — a named fire with acreage, containment, cause and
+      * discovery date — which is a different kind of data from the satellite
+      * detections in DownloadActiveFire: those are anonymous hot pixels with no
+      * incident identity.
+      *
+      * UNITED STATES ONLY. No equivalent global perimeter feed exists, so on a
+      * world map an empty area outside the US means "not published", not "not
+      * burning".
+      *
+      * Includes CONTAINED fires, so each feature carries a derived `status`
+      * (active / contained / unreported) rather than implying everything drawn
+      * is burning. Geometry is generalised to ~111 m server-side (26.8 MB of raw
+      * polygons becomes 0.78 MB); use the WFIGS source for operational work. */
+    event facet DownloadFirePerimeters(
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean,
+        active_count: Int,
+        contained_count: Int,
+        unreported_count: Int,
+        acres_total: Double
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate") with Timeout(minutes = 15)
+
     /** Download NASA FIRMS active-fire / thermal-anomaly detections (past 24h).
       *
       * Merges the two keyless global feeds -- VIIRS S-NPP (375 m) and MODIS
@@ -1303,6 +1336,15 @@ namespace save_earth.workflows {
                 detail = "FIRMS active-fire download failed"
             )
         }
+        perims = DownloadFirePerimeters(
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildWildfireMap(
+                status = "partial",
+                html_path = "",
+                detail = "perimeter download failed; detections unaffected"
+            )
+        }
         map = BuildMap(
             region = "wildfire",
             center_lat = $.center_lat,
@@ -1313,7 +1355,7 @@ namespace save_earth.workflows {
             attribution_workflow = "save_earth.workflows.BuildWildfireMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
             description = "Active fire and thermal-anomaly detections from NASA FIRMS over the past 24 hours (VIIRS 375 m + MODIS 1 km), split into low, nominal and high confidence bands. Circle size scales with fire radiative power. IMPORTANT: these are thermal anomalies, not confirmed wildfires -- gas flares, industrial heat, active lava and agricultural burning all register identically, and the single strongest detection on a given day is often a volcano. Detections are limited by cloud cover and satellite overpass, so a blank area means nothing was detected, not that nothing is burning. Click any detection for its sensor, confidence, radiative power and acquisition time. For page weight the map draws only the strongest detections by radiative power (max_inline_features); the layer toggles show how many of each band are drawn, and the complete set is in the cached GeoJSON."
-        ) after fires catch {
+        ) after fires, perims catch {
             yield BuildWildfireMap(
                 status = "failed",
                 html_path = "",
@@ -1323,7 +1365,7 @@ namespace save_earth.workflows {
         yield BuildWildfireMap(
             status = "completed",
             html_path = map.html_path,
-            detail = fires.feature_count ++ " thermal anomalies detected " ++ fires.acquired_from ++ " to " ++ fires.acquired_to ++ " (" ++ fires.high_count ++ " high / " ++ fires.nominal_count ++ " nominal / " ++ fires.low_count ++ " low confidence); map draws " ++ map.layer_count ++ " band(s), strongest first"
+            detail = perims.active_count ++ " active US perimeters (" ++ perims.acres_total ++ " acres); " ++ fires.feature_count ++ " thermal anomalies detected " ++ fires.acquired_from ++ " to " ++ fires.acquired_to ++ " (" ++ fires.high_count ++ " high / " ++ fires.nominal_count ++ " nominal / " ++ fires.low_count ++ " low confidence); map draws " ++ map.layer_count ++ " band(s), strongest first"
         )
     }
 

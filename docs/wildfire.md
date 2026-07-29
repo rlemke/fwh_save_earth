@@ -101,6 +101,65 @@ genuinely large fire stand out. They also set `magnitude_color=False`: colour
 already encodes confidence here, and the magnitude ramp was overriding it so the
 legend disagreed with the dots.
 
+## US perimeters (NIFC / WFIGS)
+
+Satellite detections have no incident identity — a point is a hot pixel, not
+"the Park Fire". `DownloadFirePerimeters` adds the other half: **incident
+polygons** with name, acreage, containment, cause and discovery date, from the
+NIFC/WFIGS interagency feed.
+
+    cache/save-earth/fire_perimeters/fire_perimeters.geojson
+
+**United States only.** No equivalent global perimeter feed exists, so outside the
+US an absent polygon means "not published", not "not burning". The layer titles
+and the collection's own `note` say so.
+
+**"Current" includes contained fires** — 60 of 231 observed perimeters were 100%
+contained, 65 reported no containment figure at all. Drawing those like an active
+fire would overstate the situation, so each feature carries a derived `status`
+and the map splits it into three `fill` layers:
+
+| Layer | Status | Colour |
+|---|---|---|
+| `fire-perimeter-active` | containment 0–99% | red `#e53935` |
+| `fire-perimeter-unreported` | no containment figure | amber `#ffb74d` |
+| `fire-perimeter-contained` | 100% | grey `#78909c` |
+
+`unreported` is deliberately its own layer rather than folded into `active`:
+absent data is not evidence of containment, and the reader should see which it is.
+They are listed **before** the point layers so polygons draw underneath the dots
+(pinned by a test).
+
+Two gotchas worth knowing:
+
+* **Geometry is generalised server-side to ~111 m** (`maxAllowableOffset=0.001`).
+  The raw 231-perimeter response is **26.8 MB**; generalised it is **0.78 MB** — a
+  36× reduction with every feature retained, and below one screen pixel until deep
+  zoom. Perimeters are aircraft/GPS-mapped with their own error, so this changes
+  nothing a reader could act on — but for operational use go to WFIGS directly.
+* **The endpoint returns HTTP 200 with a 429 *inside the JSON body*** when the
+  shared ArcGIS quota is exhausted. A client checking only the status code caches
+  an error document as data. `_fetch_page` inspects the body and backs off.
+
+## Basemap: why not CalTopo
+
+CalTopo's layers are a **subscription product**; pointing this map at their tile
+servers would be freeloading on their bandwidth and almost certainly against
+their terms — there is no published third-party tile permission, and absence of a
+prohibition is not permission. So we do not.
+
+What CalTopo largely curates *is* public domain, and available directly. `BuildMap`
+already takes `basemap_url` / `basemap_attribution`, so no code change is needed:
+
+```
+basemap_url = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}"
+basemap_attribution = "Basemap: USGS The National Map (public domain)"
+```
+
+(`USGSImageryTopo` for imagery+topo.) Note the ArcGIS path order is `{z}/{y}/{x}`,
+not the usual `{z}/{x}/{y}` — MapLibre substitutes the tokens wherever they appear,
+so the template works as written. 24 zoom levels, no key, US coverage.
+
 ## Run it
 
 ```bash

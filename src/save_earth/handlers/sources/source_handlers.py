@@ -29,6 +29,7 @@ from ..shared.save_earth_utils import (
     telescope,
     tesla,
     tri,
+    fire_perimeters,
     volcanoes,
     wildfire,
 )
@@ -407,6 +408,39 @@ def handle_download_earthquakes(params: dict[str, Any]) -> dict[str, Any]:
     return {"cache_type": seismic.EARTHQUAKES_CACHE_TYPE, **_result_payload(res)}
 
 
+def handle_download_perimeters(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadFirePerimeters — NIFC/WFIGS current US fire perimeters.
+
+    Returns the per-status counts so a workflow can say "106 active / 60
+    contained" without re-reading the collection, and total acres — the figure a
+    reader actually wants from a perimeter layer, which no count of satellite
+    detections can give.
+    """
+    force = bool(params.get("force", False))
+    use_mock = bool(params.get("use_mock", False))
+    step_log = params.get("_step_log")
+
+    _step_log(step_log, f"DownloadFirePerimeters force={force} use_mock={use_mock}")
+    res = fire_perimeters.download_perimeters(force=force, use_mock=use_mock)
+    status = "cache" if res.was_cached else ("mock" if res.used_mock else "download")
+    sc = res.status_counts or {}
+    _step_log(
+        step_log,
+        f"[{status}] fire_perimeters/{res.relative_path}  {res.feature_count:,} perimeters "
+        f"(active={sc.get('active', 0)} contained={sc.get('contained', 0)} "
+        f"unreported={sc.get('unreported', 0)}) {res.acres_total:,.0f} acres",
+        "success",
+    )
+    return {
+        "cache_type": fire_perimeters.CACHE_TYPE,
+        **_result_payload(res),
+        "active_count": int(sc.get("active", 0)),
+        "contained_count": int(sc.get("contained", 0)),
+        "unreported_count": int(sc.get("unreported", 0)),
+        "acres_total": float(res.acres_total),
+    }
+
+
 def handle_download_active_fire(params: dict[str, Any]) -> dict[str, Any]:
     """Handle DownloadActiveFire — NASA FIRMS 24h thermal-anomaly detections.
 
@@ -546,6 +580,7 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadEarthquakes": handle_download_earthquakes,
     f"{NAMESPACE}.DownloadFaults": handle_download_faults,
     f"{NAMESPACE}.DownloadActiveFire": handle_download_active_fire,
+    f"{NAMESPACE}.DownloadFirePerimeters": handle_download_perimeters,
 }
 
 

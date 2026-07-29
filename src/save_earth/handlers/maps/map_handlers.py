@@ -20,6 +20,7 @@ from ..shared.save_earth_utils import (
     nuclear,
     openlittermap,
     seismic,
+    fire_perimeters,
     wildfire,
     semiconductor,
     siting,
@@ -294,6 +295,49 @@ _EARTHQUAKE_LAYER = map_render.LayerSpec(
 # These are labelled "thermal anomalies", NOT "wildfires", on purpose: the feed
 # cannot distinguish a wildfire from a gas flare, an industrial stack or an
 # active volcano, and the strongest detection in a typical day is often Kilauea.
+# US fire PERIMETERS (NIFC/WFIGS) — incident polygons, a different kind of data
+# from the satellite detections: a named fire with acreage, containment and cause.
+# UNITED STATES ONLY; the titles say so, because on a world map the absence of a
+# polygon outside the US means "not published", not "not burning".
+#
+# Split by derived status so a fully-contained fire is not drawn like an active
+# one (60 of 231 observed perimeters were 100% contained). "unreported" is grouped
+# with active in intent but kept separate so the reader can see the difference —
+# absent containment data is not evidence of containment.
+_PERIMETER_DESCRIPTION_FIELDS = [
+    "incident_name",
+    "status",
+    "percent_contained",
+    "acres",
+    "cause",
+    "state",
+    "discovered_utc",
+    "perimeter_updated_utc",
+]
+
+
+def _perimeter_layer(status: str, title: str, color: str) -> map_render.LayerSpec:
+    return map_render.LayerSpec(
+        name=f"fire-perimeter-{status}",
+        title=title,
+        source_cache_type=fire_perimeters.CACHE_TYPE,
+        source_relative_path=fire_perimeters.RELATIVE_PATH,
+        color=color,
+        geometry="fill",
+        filter_field="status",
+        filter_value=status,
+        description_fields=_PERIMETER_DESCRIPTION_FIELDS,
+    )
+
+
+# Listed before the point layers so polygons draw UNDERNEATH the detections.
+_PERIMETER_LAYERS = [
+    _perimeter_layer("contained", "US fire perimeters - contained (NIFC)", "#78909c"),
+    _perimeter_layer("unreported", "US fire perimeters - containment unreported (NIFC)", "#ffb74d"),
+    _perimeter_layer("active", "US fire perimeters - active (NIFC)", "#e53935"),
+]
+
+
 _FIRE_DESCRIPTION_FIELDS = [
     "sensor",
     "confidence_band",
@@ -502,6 +546,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
             _TELESCOPE_LAYER,
             _FAULTS_LAYER,
             _EARTHQUAKE_LAYER,
+            *_PERIMETER_LAYERS,
             *_FIRE_LAYERS,
         ]
         + _EPA_LAYERS

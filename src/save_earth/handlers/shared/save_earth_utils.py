@@ -45,6 +45,7 @@ from _save_earth_tools import (  # noqa: E402,F401
     telescope,
     tesla,
     tri,
+    fire_perimeters,
     volcanoes,
     wildfire,
 )
@@ -85,6 +86,7 @@ __all__ = [
     "telescope",
     "tesla",
     "tri",
+    "fire_perimeters",
     "volcanoes",
     "wildfire",
     "lgbtq",
