@@ -1331,22 +1331,10 @@ namespace save_earth.workflows {
     ) andThen {
         fires = DownloadActiveFire(
             use_mock = $.use_mock
-        ) catch {
-            yield BuildWildfireMap(
-                status = "failed",
-                html_path = "",
-                detail = "FIRMS active-fire download failed"
-            )
-        }
+        )
         perims = DownloadFirePerimeters(
             use_mock = $.use_mock
-        ) catch {
-            yield BuildWildfireMap(
-                status = "partial",
-                html_path = "",
-                detail = "perimeter download failed; detections unaffected"
-            )
-        }
+        )
         map = BuildMap(
             region = "wildfire",
             center_lat = $.center_lat,
@@ -1357,17 +1345,18 @@ namespace save_earth.workflows {
             attribution_workflow = "save_earth.workflows.BuildWildfireMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
             description = "Active fire and thermal-anomaly detections from NASA FIRMS over the past 24 hours (VIIRS 375 m + MODIS 1 km), split into low, nominal and high confidence bands. Circle size scales with fire radiative power. IMPORTANT: these are thermal anomalies, not confirmed wildfires -- gas flares, industrial heat, active lava and agricultural burning all register identically, and the single strongest detection on a given day is often a volcano. Detections are limited by cloud cover and satellite overpass, so a blank area means nothing was detected, not that nothing is burning. Click any detection for its sensor, confidence, radiative power and acquisition time. For page weight the map draws only the strongest detections by radiative power (max_inline_features); the layer toggles show how many of each band are drawn, and the complete set is in the cached GeoJSON."
-        ) after fires, perims catch {
-            yield BuildWildfireMap(
-                status = "failed",
-                html_path = "",
-                detail = "map build failed"
-            )
-        }
+        ) after fires, perims
         yield BuildWildfireMap(
             status = "completed",
             html_path = map.html_path,
             detail = perims.active_count ++ " active US perimeters (" ++ perims.acres_total ++ " acres); " ++ fires.feature_count ++ " thermal anomalies detected " ++ fires.acquired_from ++ " to " ++ fires.acquired_to ++ " (" ++ fires.high_count ++ " high / " ++ fires.nominal_count ++ " nominal / " ++ fires.low_count ++ " low confidence); map draws " ++ map.layer_count ++ " band(s), strongest first"
+        )
+    }
+    catch {
+        yield BuildWildfireMap(
+            status = "failed",
+            html_path = "",
+            detail = "failed: " ++ $.error
         )
     }
 
@@ -1398,23 +1387,11 @@ namespace save_earth.workflows {
     ) andThen {
         perims = DownloadFirePerimeters(
             use_mock = $.use_mock
-        ) catch {
-            yield BuildUsFireMap(
-                status = "failed",
-                html_path = "",
-                detail = "NIFC perimeter download failed"
-            )
-        }
+        )
         fires = DownloadActiveFire(
             use_mock = $.use_mock,
             region = "us"
-        ) catch {
-            yield BuildUsFireMap(
-                status = "partial",
-                html_path = "",
-                detail = "US detection download failed; perimeters unaffected"
-            )
-        }
+        )
         map = BuildMap(
             region = "us-fire",
             center_lat = $.center_lat,
@@ -1427,17 +1404,18 @@ namespace save_earth.workflows {
             attribution_workflow = "save_earth.workflows.BuildUsFireMap",
             attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
             description = "US wildfire perimeters (NIFC/WFIGS interagency feed) over the USGS topographic basemap, with US thermal-anomaly detections from NASA FIRMS (VIIRS 375 m + MODIS 1 km, past 24 hours). Perimeters are split by containment: red = active (0-99% contained), amber = containment not reported, grey = 100% contained. Toggle each in the Layers panel. Perimeter polygons are generalised to about 111 m for page weight - use the WFIGS source for operational work. Detections are thermal anomalies, not confirmed wildfires: gas flares, industrial heat and agricultural burning register identically. Click any perimeter for its incident name, acreage, containment, cause and discovery date; click any detection for its sensor, confidence and radiative power."
-        ) after perims, fires catch {
-            yield BuildUsFireMap(
-                status = "failed",
-                html_path = "",
-                detail = "map build failed"
-            )
-        }
+        ) after perims, fires
         yield BuildUsFireMap(
             status = "completed",
             html_path = map.html_path,
             detail = perims.active_count ++ " active + " ++ perims.contained_count ++ " contained US perimeters (" ++ perims.acres_total ++ " acres); " ++ fires.feature_count ++ " US thermal anomalies"
+        )
+    }
+    catch {
+        yield BuildUsFireMap(
+            status = "failed",
+            html_path = "",
+            detail = "failed: " ++ $.error
         )
     }
 

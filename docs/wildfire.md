@@ -188,6 +188,41 @@ basemap_attribution = "Basemap: USGS The National Map (public domain)"
 not the usual `{z}/{x}/{y}` — MapLibre substitutes the tokens wherever they appear,
 so the template works as written. 24 zoom levels, no key, US coverage.
 
+## Error handling: one declaration-level catch, not one per step
+
+Both workflows use a **declaration-level `catch`** — a single block covering the
+whole body — rather than a `catch` on every step:
+
+```ffl
+workflow BuildWildfireMap(...) => (...) andThen {
+    fires  = DownloadActiveFire(...)
+    perims = DownloadFirePerimeters(...)
+    map    = BuildMap(...) after fires, perims
+    yield  BuildWildfireMap(status = "completed", ...)
+}
+catch {
+    yield BuildWildfireMap(status = "failed", html_path = "", detail = "failed: " ++ $.error)
+}
+```
+
+This is not a new language feature — FFL has accepted `catch` on `facet`,
+`event facet` and `workflow` declarations all along ("at declaration level it
+covers the entire body"). These workflows originally carried three near-identical
+per-step catches each, purely because the author did not know.
+
+Two things improve:
+
+* **`$.error` reports what actually failed**, e.g. `unknown region 'atlantis';
+  known: ['us', 'world']` — better than a hand-written guess like "download
+  failed", which is right about the step and silent about the cause.
+* **No lost distinction.** The per-step catches yielded a `"partial"` status when
+  a download failed, but with `after fires, perims` the map never builds if either
+  producer errors — nothing partial ever happened.
+
+Keep a per-step `catch` only where a step genuinely has its own recovery (a
+fallback source, a skip-and-continue); a step-level catch still wins over the
+declaration-level one.
+
 ## Run it
 
 ```bash
