@@ -178,7 +178,13 @@ namespace save_earth.sources {
       * operator, direction the camera faces, surveillance:zone, mount, ...)
       * plus a derived ``camera_vendor`` (flock/motorola/other), so the map
       * popup can surface all available information. ~336k nodes worldwide;
-      * coverage is crowd-driven and varies by region. */
+      * coverage is crowd-driven and varies by region.
+      *
+      * If every Overpass mirror is throttled the same question is answered
+      * offline from a locally hosted planet extract, when one is configured —
+      * a fallback, never a promotion: local data is a weeks-old snapshot, so
+      * live wins when it answers and local only beats failing. ``source_url``
+      * records which answered (``local://<file>@<replication-timestamp>``). */
     event facet DownloadALPRCameras(
         force: Boolean = false,
         use_mock: Boolean = false

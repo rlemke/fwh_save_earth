@@ -29,6 +29,30 @@ worldwide cached query (7-day freshness window), never a per-region
 fan-out. Coverage is crowd-driven and varies by region — the honest
 limitation of an open source. Pass ``use_mock=True`` for a small offline
 set when the network or Overpass is unavailable.
+
+**Local-planet fallback.** When every Overpass mirror is throttled — which
+used to end the run and leave the map un-rebuildable — the same question is
+answered offline from a locally hosted planet extract, if one is configured
+(``FW_ALPR_LOCAL_PBF``, else a ``planet-latest.osm.pbf`` under
+``FW_OSM_LOCAL_EXTRACTS``). It is a FALLBACK, not a replacement, and the
+ordering is deliberate:
+
+* Overpass is INDEXED, so a selective tag query costs seconds. The local
+  extracts are not, so the same question is a full scan — 853 MB took 24s on
+  this hardware, and a planet pass is hours.
+* The self-hosted split carries ``osmosis_replication_timestamp=2026-07-12``
+  and the update phase was never built, so local data is WEEKS behind live.
+  For a registry that is actively being mapped, promoting it would make this
+  map's data older — the one thing the map is about.
+
+So live Overpass wins whenever it answers; local wins over failing. The
+source that answered is recorded in ``source_url``
+(``local://<file>@<replication-timestamp>``) so the age is never hidden.
+``osm.query.TagQuery`` in fwh_osm is the general, cached form of the same
+technique; it is inlined here rather than imported because save-earth does
+not depend on osm-geocoder and should not — a fallback that needs another
+domain's package installed, or its runner alive, fails alongside the thing
+it covers.
 """
 
 from __future__ import annotations
@@ -37,7 +61,10 @@ import hashlib
 import json
 import logging
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import threading
 from dataclasses import dataclass
 from datetime import UTC
@@ -87,6 +114,25 @@ OVERPASS_QUERY = (
                  # trailing `tags` means tags-only (no lat/lon), which silently
                  # drops every node in _to_feature.
 )
+
+# --- local-planet fallback --------------------------------------------------
+# Overpass answers a SELECTIVE tag query in seconds because it is indexed; the
+# local extracts have no index, so the same question costs a full scan (~35 MB/s
+# measured on this hardware — minutes for a continent, ~40 min for the planet).
+# Local is therefore the FALLBACK, not the replacement.
+#
+# The decisive reason it is not the replacement: the self-hosted split carries
+# `osmosis_replication_timestamp=2026-07-12` and the update phase was never
+# built, so local data is WEEKS behind. For a crowd-sourced registry that is
+# actively being mapped, switching to it wholesale would make this map's data
+# older, which is the one thing the map is about. Live Overpass wins when it
+# answers; local wins over failing.
+#
+# Same selective tag as OVERPASS_QUERY — `n/` is osmium's node-only prefix.
+LOCAL_TAG_FILTER = "n/surveillance:type=ALPR"
+LOCAL_PBF_ENV = "FW_ALPR_LOCAL_PBF"          # explicit path wins
+LOCAL_ROOTS_ENV = "FW_OSM_LOCAL_EXTRACTS"    # else search these roots
+LOCAL_PLANET_NAMES = ("planet-latest.osm.pbf", "planet.osm.pbf")
 
 _lock = threading.Lock()
 
@@ -146,7 +192,35 @@ def download(
                     "requests library is not installed. Install it, run via "
                     "the .sh wrapper (activates .venv), or pass --use-mock."
                 )
-            features, source_url = _fetch_overpass()
+            try:
+                features, source_url = _fetch_overpass()
+            except RuntimeError as exc:
+                # Every mirror throttled or down. Before this, that was the end
+                # of the run and the map could not be rebuilt at all. The local
+                # planet answers the same question offline — older data, but a
+                # map that exists. Only fall back if a WORLDWIDE extract is
+                # actually present; otherwise re-raise the original Overpass
+                # error, which is the one that explains what went wrong.
+                pbf = local_pbf_path()
+                if pbf is None:
+                    raise
+                logger.warning(
+                    "Overpass unavailable (%s) — falling back to the local "
+                    "planet at %s. This data is a SNAPSHOT and will be older "
+                    "than the live registry.", exc, pbf,
+                )
+                features, source_url = _fetch_local(
+                    pbf, osmium_bin=os.environ.get("FW_OSMIUM_BIN", "osmium")
+                )
+                if not features:
+                    # An empty local result is as untrustworthy as an empty
+                    # Overpass one — a worldwide ALPR query returning nothing
+                    # means the scan went wrong, not that the cameras vanished.
+                    raise RuntimeError(
+                        f"local extract {pbf} yielded 0 ALPR features; refusing "
+                        f"to cache an empty worldwide set (original Overpass "
+                        f"failure: {exc})"
+                    ) from exc
             used_mock = False
 
         body = json.dumps(
@@ -217,6 +291,109 @@ def _fetch_overpass() -> tuple[list[dict[str, Any]], str]:
         f"all {len(OVERPASS_ENDPOINTS)} Overpass mirrors failed or were throttled "
         f"(shared public IP rate-limit needs a cool-down); last error: {last_exc}"
     )
+
+
+def local_pbf_path() -> Path | None:
+    """The worldwide extract to scan, or None if this host has none.
+
+    An explicit FW_ALPR_LOCAL_PBF wins; otherwise look for a planet file under
+    FW_OSM_LOCAL_EXTRACTS. Deliberately planet-only: a continent extract would
+    silently turn a WORLDWIDE map into a regional one, which looks like "ALPRs
+    only exist in North America" rather than like a missing file.
+    """
+    explicit = os.environ.get(LOCAL_PBF_ENV, "").strip()
+    if explicit:
+        p = Path(explicit)
+        return p if p.exists() else None
+    for root in (r for r in os.environ.get(LOCAL_ROOTS_ENV, "").split(":") if r.strip()):
+        for name in LOCAL_PLANET_NAMES:
+            for cand in (Path(root) / name, Path(root) / "osm-selfhost" / name):
+                if cand.exists():
+                    return cand
+    return None
+
+
+def _replication_stamp(pbf: Path) -> str:
+    """The extract's osmosis replication timestamp, for honest provenance.
+
+    Read from the PBF HEADER (`osmium fileinfo` without -e), which is instant —
+    the extended form rescans the whole file and would take longer than the
+    query it is annotating.
+    """
+    try:
+        out = subprocess.run(
+            ["osmium", "fileinfo", str(pbf)],
+            capture_output=True, text=True, timeout=60, check=True,
+        ).stdout
+    except Exception:  # noqa: BLE001 — provenance is best-effort, never fatal
+        return ""
+    for line in out.splitlines():
+        if "osmosis_replication_timestamp=" in line:
+            return line.split("=", 1)[1].strip()
+    return ""
+
+
+def _fetch_local(pbf: Path, *, osmium_bin: str = "osmium") -> tuple[list[dict[str, Any]], str]:
+    """Scan a local extract for ALPR nodes — the same question, offline.
+
+    Emits Overpass-shaped elements and hands them to the SAME ``_to_feature``
+    the network path uses, so the two sources cannot drift in vendor
+    classification, provenance fields or tag handling.
+
+    This is the single-purpose form of ``osm.query.TagQuery`` (fwh_osm), which
+    does arbitrary cached tag queries against these extracts. It is inlined
+    rather than imported because save-earth does not depend on osm-geocoder and
+    should not: a fallback that needs another domain's package installed — or
+    its runner alive — is a fallback that fails alongside the thing it covers.
+    """
+    staging = Path(tempfile.mkdtemp(prefix="alpr-local-"))
+    try:
+        filtered = staging / "alpr.osm.pbf"
+        seq = staging / "alpr.geojsonseq"
+        subprocess.run(
+            [osmium_bin, "tags-filter", "--overwrite", "-o", str(filtered),
+             str(pbf), LOCAL_TAG_FILTER],
+            check=True, capture_output=True, text=True,
+        )
+        subprocess.run(
+            [osmium_bin, "export", "-f", "geojsonseq", "--geometry-types=point",
+             "-o", str(seq), "--overwrite", "--add-unique-id=type_id", str(filtered)],
+            check=True, capture_output=True, text=True,
+        )
+        elements: list[dict[str, Any]] = []
+        for line in seq.read_text(encoding="utf-8").splitlines():
+            line = line.strip("\x1e \t\r\n")
+            if not line:
+                continue
+            feat = json.loads(line)
+            geom = feat.get("geometry") or {}
+            if geom.get("type") != "Point":
+                continue
+            lon, lat = geom["coordinates"][0], geom["coordinates"][1]
+            props = dict(feat.get("properties") or {})
+            # `--add-unique-id=type_id` puts it at the FEATURE's top level as
+            # e.g. "n278303396" — NOT in properties, which is where the first
+            # cut looked. That silently produced osm_id="" and an osm_url of
+            # ".../node/" that 404s: a dead provenance link on every feature,
+            # invisible unless you click one. Strip the type prefix so the URL
+            # matches the Overpass path exactly.
+            raw_id = str(feat.get("id") or "")
+            osm_id = raw_id[1:] if raw_id[:1] in "nwr" else raw_id
+            elements.append({
+                "type": "node",
+                "id": int(osm_id) if osm_id.isdigit() else osm_id,
+                "lat": lat, "lon": lon, "tags": props,
+            })
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    features = [f for f in (_to_feature(el) for el in elements) if f is not None]
+    stamp = _replication_stamp(pbf)
+    # The URL records WHICH snapshot answered, so a consumer can see the age.
+    source = f"local://{pbf.name}" + (f"@{stamp}" if stamp else "")
+    logger.info("local extract %s → %d ALPR features (data as of %s)",
+                pbf.name, len(features), stamp or "unknown")
+    return features, source
 
 
 def _classify_vendor(tags: dict[str, Any]) -> str:
