@@ -260,3 +260,101 @@ def test_merged_provenance_reports_the_oldest_input(monkeypatch):
     monkeypatch.setattr(alpr, "_fetch_local", _fake)
     _feats, source = alpr._fetch_local_many([Path("new.pbf"), Path("old.pbf")])
     assert source.endswith("@2026-07-12T00:00:00Z"), source
+
+
+# ---------------------------------------------------------------------------
+# The index is PRIMARY — but only while it is demonstrably fresh
+# ---------------------------------------------------------------------------
+
+
+def _make_index(tmp_path, *, updated_at, rows=((1, 1.0, 2.0, {"surveillance:type": "ALPR"}),)):
+    """A minimal index file. Built with stdlib sqlite3, exactly as the reader
+    consumes it — the artefact IS the interface between the two domains."""
+    import sqlite3
+
+    root = tmp_path / "idx"
+    root.mkdir(parents=True, exist_ok=True)
+    db = root / "alpr.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript(
+        "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+        "CREATE TABLE nodes (id INTEGER PRIMARY KEY, lon REAL, lat REAL, tags TEXT);")
+    con.execute("INSERT INTO meta VALUES('sequence','5091')")
+    if updated_at is not None:
+        con.execute("INSERT INTO meta VALUES('updated_at',?)", (updated_at,))
+    for oid, lon, lat, tags in rows:
+        con.execute("INSERT INTO nodes VALUES(?,?,?,?)", (oid, lon, lat, json.dumps(tags)))
+    con.commit()
+    con.close()
+    return root
+
+
+def _iso(hours_ago):
+    from datetime import UTC, datetime, timedelta
+    return (datetime.now(UTC) - timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_a_fresh_index_is_used_without_touching_the_network(tmp_path, monkeypatch, local_storage):
+    from save_earth.handlers.shared.save_earth_utils import alpr
+
+    monkeypatch.setenv("FW_OSM_INDEX_ROOT", str(_make_index(tmp_path, updated_at=_iso(1))))
+    monkeypatch.setattr(alpr, "_fetch_overpass",
+                        lambda: (_ for _ in ()).throw(AssertionError("network used")))
+    res = alpr.download(force=True)
+    assert res.feature_count == 1
+    assert res.source_url.startswith("index://")
+
+
+def test_a_stale_index_yields_to_live_overpass(tmp_path, monkeypatch, local_storage):
+    """An index that stopped advancing keeps answering, plausibly, with data
+    that silently ages — the exact failure this source spent so long escaping.
+    Freshness is checked, and the fallback is the LIVE source."""
+    from save_earth.handlers.shared.save_earth_utils import alpr
+
+    monkeypatch.setenv("FW_OSM_INDEX_ROOT", str(_make_index(tmp_path, updated_at=_iso(24 * 30))))
+    monkeypatch.setattr(alpr, "_fetch_overpass",
+                        lambda: ([{"type": "Feature",
+                                   "geometry": {"type": "Point", "coordinates": [0, 0]},
+                                   "properties": {"osm_id": 9}}], "http://overpass/"))
+    res = alpr.download(force=True)
+    assert res.source_url == "http://overpass/"
+
+
+def test_an_undatable_index_is_treated_as_stale(tmp_path, monkeypatch, local_storage):
+    """No updated_at means no way to know whether the nightly still runs.
+    Unknown age is treated as too old, never as fresh."""
+    from save_earth.handlers.shared.save_earth_utils import alpr
+
+    monkeypatch.setenv("FW_OSM_INDEX_ROOT", str(_make_index(tmp_path, updated_at=None)))
+    monkeypatch.setattr(alpr, "_fetch_overpass",
+                        lambda: ([{"type": "Feature",
+                                   "geometry": {"type": "Point", "coordinates": [0, 0]},
+                                   "properties": {"osm_id": 9}}], "http://overpass/"))
+    assert alpr.download(force=True).source_url == "http://overpass/"
+
+
+def test_an_empty_index_is_refused_not_cached(tmp_path, monkeypatch, local_storage):
+    """A worldwide query returning nothing means something broke, not that the
+    cameras vanished — the same rule already applied to an empty Overpass reply."""
+    from save_earth.handlers.shared.save_earth_utils import alpr
+
+    monkeypatch.setenv("FW_OSM_INDEX_ROOT",
+                       str(_make_index(tmp_path, updated_at=_iso(1), rows=())))
+    monkeypatch.setattr(alpr, "_fetch_overpass",
+                        lambda: ([{"type": "Feature",
+                                   "geometry": {"type": "Point", "coordinates": [0, 0]},
+                                   "properties": {"osm_id": 9}}], "http://overpass/"))
+    assert alpr.download(force=True).source_url == "http://overpass/"
+
+
+def test_force_overpass_bypasses_the_index(tmp_path, monkeypatch, local_storage):
+    """So the two sources can be compared against each other on demand."""
+    from save_earth.handlers.shared.save_earth_utils import alpr
+
+    monkeypatch.setenv("FW_OSM_INDEX_ROOT", str(_make_index(tmp_path, updated_at=_iso(1))))
+    monkeypatch.setenv("FW_ALPR_FORCE_OVERPASS", "1")
+    monkeypatch.setattr(alpr, "_fetch_overpass",
+                        lambda: ([{"type": "Feature",
+                                   "geometry": {"type": "Point", "coordinates": [0, 0]},
+                                   "properties": {"osm_id": 9}}], "http://overpass/"))
+    assert alpr.download(force=True).source_url == "http://overpass/"
