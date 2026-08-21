@@ -12,7 +12,7 @@ downstream map popup can surface all available information. Output lands at::
 
 on whichever backend ``FW_STORAGE`` selects (``local`` / ``hdfs`` /
 ``s3``). Coverage and tag completeness are OSM-community-driven and vary
-by region (~336k nodes worldwide by early 2026).
+by region (~145k nodes worldwide, counted 2026-08-21).
 
 Usage::
 

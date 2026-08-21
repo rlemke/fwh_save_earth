@@ -44,7 +44,7 @@ out per country, semiconductor fabs, does so for query-size reasons, not through
 | Source | `cache_type` / file | OSM selector | Derived fields / notes |
 |---|---|---|---|
 | Nuclear reactors (`nuclear.py`) | `nuclear` / `reactors.geojson` | `generator:source=nuclear` (a reactor) or `plant:source=nuclear` (a station) | Full tags; `_NUCLEAR_LAYER` popup shows all. |
-| ALPR cameras (`alpr.py`) | `alpr` / `cameras.geojson` | `man_made=surveillance` + `surveillance:type=ALPR` (DeFlock) | derived `camera_vendor` (flock/motorola/other); ~336k nodes. Camera **locations only** — no video/plate data. |
+| ALPR cameras (`alpr.py`) | `alpr` / `cameras.geojson` | `man_made=surveillance` + `surveillance:type=ALPR` (DeFlock) | derived `camera_vendor` (flock/motorola/other); ~145k nodes (counted 2026-08-21). Camera **locations only** — no video/plate data. |
 | Data centers (`datacenters.py`) | `datacenters` / `datacenters.geojson` | `man_made=data_center` / telecom, continental-US bbox | footprints centroided; existing/mapped facilities only. |
 | Nuclear sites (`nuclear_sites.py`) | `nuclear-sites` / `nuclear_sites.geojson` | `military=nuclear_explosion_site` + `bunker_type=missile_silo` | derived `site_type` (test_site / missile_silo) → two toggleable layers from one file. |
 | Volcanoes (`volcanoes.py`) | `volcanoes` / `volcanoes.geojson` | `natural=volcano` **with** a `wikidata`/`wikipedia` tag (notability proxy) | ~1–2k worldwide. |

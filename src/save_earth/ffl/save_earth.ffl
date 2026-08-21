@@ -177,7 +177,7 @@ namespace save_earth.sources {
       * tag is kept verbatim as the feature's properties (manufacturer,
       * operator, direction the camera faces, surveillance:zone, mount, ...)
       * plus a derived ``camera_vendor`` (flock/motorola/other), so the map
-      * popup can surface all available information. ~336k nodes worldwide;
+      * popup can surface all available information. ~145k nodes worldwide;
       * coverage is crowd-driven and varies by region.
       *
       * If every Overpass mirror is throttled the same question is answered

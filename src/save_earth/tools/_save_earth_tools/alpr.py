@@ -23,8 +23,11 @@ surface everything the dataset knows — ``manufacturer``, ``operator``,
 (``flock`` / ``motorola`` / ``other``, classified from manufacturer/brand
 so downstream layers/filters can split by vendor).
 
-By early 2026 the OSM ALPR registry had passed ~336,000 nodes worldwide,
-all on one shared per-IP Overpass rate limit — so this is a SINGLE
+The OSM ALPR registry holds ~145,000 nodes worldwide (144,844 counted live
+on 2026-08-21; an independent index built from our own extracts agreed to
+within 0.14%, the residual being that day's edits). An earlier ~336,000
+figure in these docs was WRONG by 2.3x and had never been checked against a
+count. All of it sits behind one shared per-IP Overpass rate limit — so this is a SINGLE
 worldwide cached query (7-day freshness window), never a per-region
 fan-out. Coverage is crowd-driven and varies by region — the honest
 limitation of an open source. Pass ``use_mock=True`` for a small offline
