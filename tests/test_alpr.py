@@ -170,3 +170,93 @@ def test_local_scan_matches_the_overpass_feature_contract():
         assert p["osm_type"] == "node"
         assert p["camera_vendor"] in ("flock", "motorola", "other")
         assert p["surveillance:type"] == "ALPR", "verbatim tags are kept"
+
+
+# ---------------------------------------------------------------------------
+# Source selection: prefer what is MAINTAINED
+# ---------------------------------------------------------------------------
+
+
+def _continents(root, missing=()):
+    root.mkdir(parents=True, exist_ok=True)
+    from save_earth.handlers.shared.save_earth_utils import alpr
+    for c in alpr.LOCAL_CONTINENTS:
+        if c in missing:
+            continue
+        (root / f"{c}-latest.osm.pbf").write_bytes(b"")
+    return root
+
+
+def test_the_maintained_continent_set_beats_the_frozen_planet(tmp_path, monkeypatch):
+    """Phase 2 of the planet split keeps the CONTINENT extracts current via
+    replication and updates the single planet file never. On this deployment
+    that was a 40-day gap: planet 2026-07-12, extracts 2026-08-20. Reading the
+    planet would have made the fallback far staler than it needed to be."""
+    from save_earth.handlers.shared.save_earth_utils import alpr
+
+    www = _continents(tmp_path / "www")
+    planet_root = tmp_path / "extracts"
+    planet_root.mkdir()
+    (planet_root / "planet-latest.osm.pbf").write_bytes(b"")
+
+    monkeypatch.delenv("FW_ALPR_LOCAL_PBF", raising=False)
+    monkeypatch.setenv("FW_OSM_SELFHOST_WWW", str(www))
+    monkeypatch.setenv("FW_OSM_LOCAL_EXTRACTS", str(planet_root))
+
+    srcs = alpr.local_sources()
+    assert len(srcs) == len(alpr.LOCAL_CONTINENTS)
+    assert all("planet" not in p.name for p in srcs)
+
+
+def test_a_partial_continent_set_is_refused(tmp_path, monkeypatch):
+    """A partial set would make a WORLDWIDE map look regional — "ALPRs only
+    exist in North America" — rather than looking like a missing file. The
+    planet-only guard did not disappear when continents were added; it moved."""
+    from save_earth.handlers.shared.save_earth_utils import alpr
+
+    www = _continents(tmp_path / "www", missing=("africa", "oceania"))
+    monkeypatch.delenv("FW_ALPR_LOCAL_PBF", raising=False)
+    monkeypatch.setenv("FW_OSM_SELFHOST_WWW", str(www))
+    monkeypatch.setenv("FW_OSM_LOCAL_EXTRACTS", "")
+    assert alpr.local_sources() == []
+
+
+def test_merging_extracts_deduplicates_boundary_features(monkeypatch):
+    """Regional extracts are cut with a buffer past their polygon, so a camera
+    near a seam really is in two of them. Concatenating would double-count
+    exactly the boundary features — invisible in a total, obvious on the map."""
+    from pathlib import Path
+
+    from save_earth.handlers.shared.save_earth_utils import alpr
+
+    def _fake(pbf, **k):
+        shared = {"type": "Feature", "geometry": {"type": "Point", "coordinates": [0, 0]},
+                  "properties": {"osm_id": "111"}}
+        own = {"type": "Feature", "geometry": {"type": "Point", "coordinates": [1, 1]},
+               "properties": {"osm_id": pbf.name}}
+        return [shared, own], f"local://{pbf.name}@2026-08-20T00:00:00Z"
+
+    monkeypatch.setattr(alpr, "_fetch_local", _fake)
+    feats, source = alpr._fetch_local_many([Path("a.pbf"), Path("b.pbf")])
+    ids = [f["properties"]["osm_id"] for f in feats]
+    assert ids.count("111") == 1, "the shared boundary feature must appear once"
+    assert len(feats) == 3
+    assert source.startswith("local://2-extracts@")
+
+
+def test_merged_provenance_reports_the_oldest_input(monkeypatch):
+    """A merged set is only as current as its stalest member."""
+    from pathlib import Path
+
+    from save_earth.handlers.shared.save_earth_utils import alpr
+
+    stamps = {"new.pbf": "2026-08-20T00:00:00Z", "old.pbf": "2026-07-12T00:00:00Z"}
+
+    def _fake(pbf, **k):
+        return ([{"type": "Feature", "geometry": {"type": "Point", "coordinates": [0, 0]},
+                  "properties": {"osm_id": pbf.name}}],
+                f"local://{pbf.name}@{stamps[pbf.name]}")
+
+    monkeypatch.setattr(alpr, "_fetch_local", _fake)
+    _feats, source = alpr._fetch_local_many([Path("new.pbf"), Path("old.pbf")])
+    assert source.endswith("@2026-07-12T00:00:00Z"), source

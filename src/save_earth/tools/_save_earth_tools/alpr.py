@@ -30,11 +30,20 @@ fan-out. Coverage is crowd-driven and varies by region — the honest
 limitation of an open source. Pass ``use_mock=True`` for a small offline
 set when the network or Overpass is unavailable.
 
-**Local-planet fallback.** When every Overpass mirror is throttled — which
+**Local-extract fallback.** When every Overpass mirror is throttled — which
 used to end the run and leave the map un-rebuildable — the same question is
-answered offline from a locally hosted planet extract, if one is configured
-(``FW_ALPR_LOCAL_PBF``, else a ``planet-latest.osm.pbf`` under
-``FW_OSM_LOCAL_EXTRACTS``). It is a FALLBACK, not a replacement, and the
+answered offline from locally hosted extracts. Preference order:
+``FW_ALPR_LOCAL_PBF``, then the full continent set under
+``FW_OSM_SELFHOST_WWW``, then a ``planet-latest.osm.pbf`` under
+``FW_OSM_LOCAL_EXTRACTS``.
+
+The continent set comes first because it is the one that is MAINTAINED: the
+self-hosted split keeps those current through per-region replication and
+updates the single planet file never. Measured on this deployment, the planet
+was 40 days stale while the extracts were one day old. It is accepted only
+when EVERY continent is present — a partial set would turn a worldwide map
+into a regional one, which reads as "ALPRs only exist here" rather than as a
+missing file. It is a FALLBACK, not a replacement, and the
 ordering is deliberate:
 
 * Overpass is INDEXED, so a selective tag query costs seconds. The local
@@ -133,6 +142,16 @@ LOCAL_TAG_FILTER = "n/surveillance:type=ALPR"
 LOCAL_PBF_ENV = "FW_ALPR_LOCAL_PBF"          # explicit path wins
 LOCAL_ROOTS_ENV = "FW_OSM_LOCAL_EXTRACTS"    # else search these roots
 LOCAL_PLANET_NAMES = ("planet-latest.osm.pbf", "planet.osm.pbf")
+#: The continent set that together partitions the world. Phase 2 of the planet
+#: split keeps THESE current (per-region replication diffs, applied); the single
+#: planet file is a one-off snapshot nobody updates — it was 40 days stale while
+#: the extracts were one day old. So the maintained set is preferred, and the
+#: planet is the fallback's fallback.
+LOCAL_CONTINENTS = (
+    "africa", "asia", "central-america", "europe",
+    "north-america", "oceania", "russia", "south-america",
+)
+LOCAL_WWW_ENV = "FW_OSM_SELFHOST_WWW"
 
 _lock = threading.Lock()
 
@@ -201,23 +220,24 @@ def download(
                 # map that exists. Only fall back if a WORLDWIDE extract is
                 # actually present; otherwise re-raise the original Overpass
                 # error, which is the one that explains what went wrong.
-                pbf = local_pbf_path()
-                if pbf is None:
+                sources = local_sources()
+                if not sources:
                     raise
                 logger.warning(
-                    "Overpass unavailable (%s) — falling back to the local "
-                    "planet at %s. This data is a SNAPSHOT and will be older "
-                    "than the live registry.", exc, pbf,
+                    "Overpass unavailable (%s) — falling back to %d local "
+                    "extract(s). This data is a SNAPSHOT and will be older than "
+                    "the live registry.", exc, len(sources),
                 )
-                features, source_url = _fetch_local(
-                    pbf, osmium_bin=os.environ.get("FW_OSMIUM_BIN", "osmium")
+                features, source_url = _fetch_local_many(
+                    sources, osmium_bin=os.environ.get("FW_OSMIUM_BIN", "osmium")
                 )
                 if not features:
                     # An empty local result is as untrustworthy as an empty
                     # Overpass one — a worldwide ALPR query returning nothing
                     # means the scan went wrong, not that the cameras vanished.
                     raise RuntimeError(
-                        f"local extract {pbf} yielded 0 ALPR features; refusing "
+                        f"{len(sources)} local extract(s) yielded 0 ALPR features; "
+                        f"refusing "
                         f"to cache an empty worldwide set (original Overpass "
                         f"failure: {exc})"
                     ) from exc
@@ -293,24 +313,57 @@ def _fetch_overpass() -> tuple[list[dict[str, Any]], str]:
     )
 
 
-def local_pbf_path() -> Path | None:
-    """The worldwide extract to scan, or None if this host has none.
+def local_sources() -> list[Path]:
+    """Extracts that together cover the WORLD, newest-maintained first.
 
-    An explicit FW_ALPR_LOCAL_PBF wins; otherwise look for a planet file under
-    FW_OSM_LOCAL_EXTRACTS. Deliberately planet-only: a continent extract would
-    silently turn a WORLDWIDE map into a regional one, which looks like "ALPRs
-    only exist in North America" rather than like a missing file.
+    Order of preference:
+
+    1. ``FW_ALPR_LOCAL_PBF`` — an explicit override, whatever it points at.
+    2. The full continent set under ``FW_OSM_SELFHOST_WWW``. These are what the
+       self-hosted split keeps current via per-region replication.
+    3. A single planet file under ``FW_OSM_LOCAL_EXTRACTS``.
+
+    The continent set is accepted **only when every continent is present**. A
+    partial set would silently turn a worldwide map into a regional one, which
+    reads as "ALPRs only exist in North America" rather than as a missing file —
+    the same hazard the old planet-only rule guarded against, which is why the
+    guard moved rather than disappeared.
+
+    Preferring continents over the planet is not a style choice: Phase 2 keeps
+    the continent extracts current and updates the planet file never, so on this
+    deployment the planet was 40 days stale while the extracts were one day old.
     """
     explicit = os.environ.get(LOCAL_PBF_ENV, "").strip()
     if explicit:
         p = Path(explicit)
-        return p if p.exists() else None
+        return [p] if p.exists() else []
+
+    www = os.environ.get(LOCAL_WWW_ENV, "").strip()
+    if www:
+        found = [Path(www) / f"{c}-latest.osm.pbf" for c in LOCAL_CONTINENTS]
+        if all(p.exists() for p in found):
+            return found
+        # Partial is refused, not silently used — see above.
+        missing = [p.name for p in found if not p.exists()]
+        if len(missing) < len(found):
+            logger.warning(
+                "ignoring the continent set at %s: %d of %d missing (%s). A partial "
+                "set would make a worldwide map look regional.",
+                www, len(missing), len(found), ", ".join(missing[:3]),
+            )
+
     for root in (r for r in os.environ.get(LOCAL_ROOTS_ENV, "").split(":") if r.strip()):
         for name in LOCAL_PLANET_NAMES:
             for cand in (Path(root) / name, Path(root) / "osm-selfhost" / name):
                 if cand.exists():
-                    return cand
-    return None
+                    return [cand]
+    return []
+
+
+def local_pbf_path() -> Path | None:
+    """Back-compat shim: the first source, or None."""
+    srcs = local_sources()
+    return srcs[0] if srcs else None
 
 
 def _replication_stamp(pbf: Path) -> str:
@@ -331,6 +384,37 @@ def _replication_stamp(pbf: Path) -> str:
         if "osmosis_replication_timestamp=" in line:
             return line.split("=", 1)[1].strip()
     return ""
+
+
+def _fetch_local_many(
+    sources: list[Path], *, osmium_bin: str = "osmium"
+) -> tuple[list[dict[str, Any]], str]:
+    """Scan several extracts and merge, de-duplicating by OSM id.
+
+    Regional extracts are cut with a small buffer beyond their polygon, so a
+    camera near a boundary genuinely appears in two of them. Concatenating
+    without de-duplication would double-count exactly the features on the seams
+    — an error that is invisible in a total and obvious on the map.
+    """
+    seen: set[Any] = set()
+    merged: list[dict[str, Any]] = []
+    stamps: list[str] = []
+    for src in sources:
+        feats, source = _fetch_local(src, osmium_bin=osmium_bin)
+        stamps.append(source)
+        for f in feats:
+            key = f["properties"].get("osm_id")
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(f)
+    # Provenance records the OLDEST input: a merged set is only as current as
+    # its stalest member, and claiming otherwise would overstate it.
+    oldest = min((s.split("@", 1)[1] for s in stamps if "@" in s), default="")
+    label = f"local://{len(sources)}-extracts" + (f"@{oldest}" if oldest else "")
+    logger.info("merged %d extract(s) -> %d unique ALPR features (oldest input %s)",
+                len(sources), len(merged), oldest or "unknown")
+    return merged, label
 
 
 def _fetch_local(pbf: Path, *, osmium_bin: str = "osmium") -> tuple[list[dict[str, Any]], str]:
