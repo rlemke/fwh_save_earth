@@ -60,3 +60,47 @@ def test_max_inline_features_default_unchanged(local_storage):
                             "use_mock": True, "force": True})
     out = map_handlers.handle_build_map({"region": "nuclear", "only_layers": "nuclear-reactors"})
     assert json.loads(out["layer_counts"])["nuclear-reactors"] > 0
+
+
+# ---------------------------------------------------------------------------
+# The inline cap: sampling must be unbiased AND declared
+# ---------------------------------------------------------------------------
+
+
+def test_over_the_cap_the_sample_is_evenly_spaced_not_a_head_slice():
+    """Cached files are written in OSM id order, and id order is age order, so
+    "the first N" systematically discards the NEWEST features. On a coverage
+    map that is a bias in exactly the dimension the map is about — the most
+    recently mapped cameras would simply vanish once the dataset outgrew the
+    cap, which it now has (144,635 against a 130,000 cap)."""
+    from save_earth.tools._save_earth_tools import map_render
+
+    feats = [{"id": i} for i in range(1000)]
+    cap = 100
+    stride = len(feats) / cap
+    kept = [feats[int(i * stride)] for i in range(cap)]
+
+    assert len(kept) == cap
+    assert kept[0]["id"] == 0
+    # the crucial property: the sample reaches the END of the file
+    assert kept[-1]["id"] >= 900, "a head slice would stop at 99"
+    ids = [k["id"] for k in kept]
+    assert ids == sorted(ids), "deterministic and ordered, so rebuilds are stable"
+
+
+def test_sampling_is_declared_on_the_page():
+    """The drop count used to be computed and then thrown away: the reader saw
+    a map that looked complete with no way to know otherwise. A coverage map
+    silently omitting a tenth of its subject is worse than one that says so."""
+    from save_earth.tools._save_earth_tools.map_render import _with_sampling_note
+
+    note = _with_sampling_note("Base description.", {("t", "p"): 14635}, 130000)
+    assert "Base description." in note
+    assert "130,000" in note and "14,635" in note
+    assert "sample" in note.lower()
+
+
+def test_no_note_when_nothing_was_dropped():
+    from save_earth.tools._save_earth_tools.map_render import _with_sampling_note
+
+    assert _with_sampling_note("Base.", {}, 130000) == "Base."

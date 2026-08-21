@@ -28,9 +28,8 @@ from __future__ import annotations
 
 import hashlib
 import html as html_mod
-import logging
 import json
-import os
+import logging
 import sys
 import textwrap
 from dataclasses import dataclass
@@ -155,17 +154,33 @@ def render_map(
         src_key = (layer.source_cache_type, layer.source_relative_path)
         if src_key not in capped_sources:
             all_feats = data.get("features") or []
+            kept = all_feats
             if len(all_feats) > max_inline_features:
+                # EVENLY SPACED, not the first N.
+                #
+                # Taking a head slice sounds neutral and is not: cached files
+                # are written in OSM id order, and id order is age order, so
+                # "the first N" systematically discards the NEWEST features.
+                # On the ALPR map that meant the most recently mapped cameras
+                # would vanish the moment the dataset outgrew the cap — a
+                # coverage claim biased by exactly the thing the map is about.
+                #
+                # A stride keeps the sample spread across the whole file and is
+                # deterministic, so a rebuild does not reshuffle which features
+                # appear. It is still a SAMPLE, which is why it is now declared
+                # on the page rather than only in a log line nobody reads.
+                stride = len(all_feats) / max_inline_features
+                kept = [all_feats[int(i * stride)] for i in range(max_inline_features)]
                 logger.warning(
-                    "%s/%s: %d features exceed max_inline_features=%d — drawing the "
-                    "first %d (the cached file's order decides which)",
+                    "%s/%s: %d features exceed max_inline_features=%d — drawing an "
+                    "evenly spaced sample of %d (1 in %.2f)",
                     layer.source_cache_type, layer.source_relative_path,
-                    len(all_feats), max_inline_features, max_inline_features,
+                    len(all_feats), max_inline_features, len(kept), stride,
                 )
-                dropped[src_key] = len(all_feats) - max_inline_features
+                dropped[src_key] = len(all_feats) - len(kept)
             capped_sources[src_key] = {
                 "type": "FeatureCollection",
-                "features": all_feats[:max_inline_features],
+                "features": kept,
             }
         data = capped_sources[src_key]
 
@@ -191,7 +206,7 @@ def render_map(
         basemap_attribution=basemap_attribution,
         attribution_workflow=attribution_workflow,
         attribution_ffl_url=attribution_ffl_url,
-        description=description,
+        description=_with_sampling_note(description, dropped, max_inline_features),
         max_inline_features=max_inline_features,
     )
 
@@ -259,6 +274,25 @@ def _layer_meta(layer: LayerSpec) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # HTML rendering.
 # ---------------------------------------------------------------------------
+
+
+def _with_sampling_note(description: str, dropped: dict, cap: int) -> str:
+    """Declare on the page that the map shows a SAMPLE, when it does.
+
+    The drop count was previously computed and then discarded — the reader saw
+    a map that looked complete and had no way to know otherwise. A coverage map
+    silently omitting a tenth of its subject is worse than one that says so:
+    the omission is invisible precisely where the map is most likely to be
+    trusted.
+    """
+    if not dropped:
+        return description
+    total_dropped = sum(dropped.values())
+    shown = cap
+    note = (f" NOTE: this map draws an evenly spaced sample of {shown:,} features; "
+            f"{total_dropped:,} more exist in the source and are not plotted "
+            f"(inline rendering cap). Counts quoted elsewhere refer to the full set.")
+    return (description or "") + note
 
 
 def _render_html(
