@@ -68,6 +68,7 @@ The full workflow catalog (all `save_earth.workflows.*`):
 | `BuildNuclearReactorMap(...)` | `nuclear-reactors` | Single OSM layer, full-tag popups. |
 | `BuildALPRCameraMap(...)` | `alpr-*` | Vendor split + heatmap; `max_inline_features=130000`. |
 | `BuildNuclearSitesMap(...)` | `nuclear-test-sites,missile-silos` | Two toggleable layers from one file. |
+| `BuildScenicHistoricRoadsMap(region, ...)` | `roads-<region>-*` | Two toggleable LINE layers from one file; `region` drives download + layer pick (`north-america` default, `world` supported). |
 | `BuildDataCenterWaterMap(...)` | `aquifers,data-centers` | Polygon fill under points. |
 | `BuildEnclaveMap(...)` | `enclave-*` | One coloured layer per heritage. |
 | `BuildPowerMap(force, ...)` | `power-*` | Plants by fuel + ≥500 kV transmission line layer. |

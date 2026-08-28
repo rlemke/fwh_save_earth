@@ -70,12 +70,12 @@ duplicating features (`camera_vendor`, `site_type`); ALPR additionally has a
 All event facets carry `with RetryPolicy() with Effect(kind="external") with
 Cost(tier="moderate")` and return the standard `SourceFetchResult`:
 `DownloadNuclearReactors`, `DownloadALPRCameras`, `DownloadDataCenters`,
-`DownloadNuclearSites`, `DownloadAquifers`, `DownloadVolcanoes`,
+`DownloadNuclearSites`, `DownloadScenicHistoricRoads`, `DownloadAquifers`, `DownloadVolcanoes`,
 `DownloadLgbtqVenues`, `DownloadTelescopes`, `DownloadTeslaChargers` — each with a
 `force` + `use_mock` param. Workflows: `BuildNuclearReactorMap`,
 `BuildALPRCameraMap`, `BuildNuclearSitesMap`, `BuildDataCenterWaterMap`,
 `BuildVolcanoMap`, `BuildLgbtqVenueMap`, `BuildTelescopeMap`,
-`BuildTeslaChargerMap`.
+`BuildTeslaChargerMap`, `BuildScenicHistoricRoadsMap`.
 
 ## Cache / output
 

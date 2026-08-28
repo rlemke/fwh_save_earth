@@ -1,0 +1,126 @@
+{
+  "_comment": "Map regions for the scenic/historic roads map. bbox is Overpass order (south,west,north,east). A region with a null bbox is queried WORLDWIDE (no bbox clause). Override the whole file with FW_ROAD_REGIONS_FILE=/path.",
+  "regions": {
+    "north-america": {
+      "label": "North America",
+      "bbox": [
+        7.0,
+        -172.0,
+        84.0,
+        -52.0
+      ],
+      "center": [
+        44.0,
+        -100.0
+      ],
+      "zoom": 3.2
+    },
+    "united-states": {
+      "label": "United States",
+      "bbox": [
+        24.0,
+        -125.0,
+        50.0,
+        -66.0
+      ],
+      "center": [
+        39.83,
+        -98.58
+      ],
+      "zoom": 4.0
+    },
+    "europe": {
+      "label": "Europe",
+      "bbox": [
+        34.0,
+        -25.0,
+        72.0,
+        45.0
+      ],
+      "center": [
+        50.0,
+        10.0
+      ],
+      "zoom": 3.8
+    },
+    "south-america": {
+      "label": "South America",
+      "bbox": [
+        -56.0,
+        -82.0,
+        13.0,
+        -34.0
+      ],
+      "center": [
+        -15.0,
+        -60.0
+      ],
+      "zoom": 3.0
+    },
+    "africa": {
+      "label": "Africa",
+      "bbox": [
+        -35.0,
+        -18.0,
+        38.0,
+        52.0
+      ],
+      "center": [
+        2.0,
+        20.0
+      ],
+      "zoom": 3.0
+    },
+    "asia": {
+      "label": "Asia",
+      "bbox": [
+        -11.0,
+        25.0,
+        82.0,
+        180.0
+      ],
+      "center": [
+        35.0,
+        95.0
+      ],
+      "zoom": 2.6
+    },
+    "australia-oceania": {
+      "label": "Australia & Oceania",
+      "bbox": [
+        -48.0,
+        110.0,
+        0.0,
+        180.0
+      ],
+      "center": [
+        -25.0,
+        140.0
+      ],
+      "zoom": 3.2
+    },
+    "world": {
+      "label": "Worldwide",
+      "bbox": null,
+      "center": [
+        25.0,
+        0.0
+      ],
+      "zoom": 1.6,
+      "_note": "Worldwide is data-viable but HEAVY: measured 2026-08-27 it returns ~89,900 segments / ~49 MB of GeoJSON, which inlines into an unwieldy page. Prefer the per-continent regions and render several maps."
+    }
+  },
+  "historic_route_exclusions": {
+    "_comment": "route=historic is a weak tag: a handful of relations carrying it are actually public-transport or interurban RAIL routes, not historic roads (measured in North America 2026-08-27: 6 of 49 \u2014 three Salem/Keizer bus routes, a CTA route, and two interurban electric railways). A relation is dropped from the historic-roads layer when its operator or network contains any pattern below, case-insensitively. Best-effort cleanup of upstream mistagging, not an exhaustive filter.",
+    "operator_or_network_patterns": [
+      "transit",
+      "cherriots",
+      "electric company",
+      "electric railway",
+      "railway",
+      "railroad",
+      "streetcar",
+      "tramway"
+    ]
+  }
+}

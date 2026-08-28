@@ -1,6 +1,6 @@
-// save-earth — FFL definitions for the environmental-action map pipeline.
+// save-earth - FFL definitions for the environmental-action map pipeline.
 //
-// Mirrors the CLI surface in ``save_earth/tools/`` — each
+// Mirrors the CLI surface in ``save_earth/tools/`` - each
 // event facet wraps one _save_earth_tools function, handlers are thin
 // dispatchers that import from _save_earth_tools/ via a sys.path shim.
 // The runtime and the
@@ -19,7 +19,7 @@
 // ---------------------------------------------------------------------------
 
 namespace save_earth.types {
-    /** Result of any source download — one cached GeoJSON + sidecar.
+    /** Result of any source download - one cached GeoJSON + sidecar.
       *
       * Matches the ``FetchResult`` dataclass the _save_earth_tools modules return so
       * FFL workflows can key downstream steps on ``relative_path`` or
@@ -55,7 +55,7 @@ namespace save_earth.types {
 
 namespace save_earth.mixins {
     /** Retry a step with exponential backoff. Applied to every
-      * network-facing source download — OpenLitterMap's servers can
+      * network-facing source download - OpenLitterMap's servers can
       * rate-limit, EPA's ArcGIS fronts occasionally 5xx. */
     facet RetryPolicy(
         max_retries: Int = 3,
@@ -66,7 +66,7 @@ namespace save_earth.mixins {
 }
 
 // ---------------------------------------------------------------------------
-// Sources — one event facet per cached data source.
+// Sources - one event facet per cached data source.
 // ---------------------------------------------------------------------------
 
 namespace save_earth.sources {
@@ -126,7 +126,7 @@ namespace save_earth.sources {
     /** Download an EPA remediation-site dataset.
       *
       * ``dataset`` = ``"superfund"`` (NPL sites, ~1.4k) or
-      * ``"brownfields"`` (ACRES, tens of thousands — paginated
+      * ``"brownfields"`` (ACRES, tens of thousands - paginated
       * transparently by the handler). */
     event facet DownloadEpaCleanups(
         dataset: String = "superfund",
@@ -170,10 +170,10 @@ namespace save_earth.sources {
     /** Download worldwide ALPR surveillance camera locations from OSM (DeFlock).
       *
       * Queries the OpenStreetMap Overpass API for every node tagged
-      * ``man_made=surveillance`` + ``surveillance:type=ALPR`` — the
+      * ``man_made=surveillance`` + ``surveillance:type=ALPR`` - the
       * crowd-sourced Automatic License Plate Reader inventory the DeFlock
       * project maintains in OSM. This is camera LOCATIONS only (no video
-      * or plate-read data — that is private to the operators). Every OSM
+      * or plate-read data - that is private to the operators). Every OSM
       * tag is kept verbatim as the feature's properties (manufacturer,
       * operator, direction the camera faces, surveillance:zone, mount, ...)
       * plus a derived ``camera_vendor`` (flock/motorola/other), so the map
@@ -181,7 +181,7 @@ namespace save_earth.sources {
       * coverage is crowd-driven and varies by region.
       *
       * If every Overpass mirror is throttled the same question is answered
-      * offline from a locally hosted planet extract, when one is configured —
+      * offline from a locally hosted planet extract, when one is configured -
       * a fallback, never a promotion: local data is a weeks-old snapshot, so
       * live wins when it answers and local only beats failing. ``source_url``
       * records which answered (``local://<file>@<replication-timestamp>``). */
@@ -208,6 +208,28 @@ namespace save_earth.sources {
         use_mock: Boolean = false
     ) => (
         cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
+    /** Download scenic and historic roads for a region from OpenStreetMap via
+      * Overpass, cached as ONE GeoJSON of lines carrying a derived `road_kind`
+      * ("scenic" / "historic") so the map can split it into two toggleable
+      * layers. `region` is a key in the road-regions JSON config
+      * (north-america, united-states, europe, world); the default region is
+      * north-america, which holds ~75% of the world's scenic=yes roads. */
+    event facet DownloadScenicHistoricRoads(
+        region: String = "north-america",
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        region: String,
         relative_path: String,
         feature_count: Int,
         size_bytes: Int,
@@ -257,7 +279,7 @@ namespace save_earth.sources {
       *
       * Queries the Overpass API for named places (place=neighbourhood /
       * quarter / suburb / city_block / locality) whose NAME marks a heritage
-      * enclave — Chinatown, Japantown, Little Italy, Koreatown, Little Saigon,
+      * enclave - Chinatown, Japantown, Little Italy, Koreatown, Little Saigon,
       * Greektown, Little Havana, … OSM has no structured ethnicity attribute
       * (demographics aren't on-the-ground verifiable), so the name is the
       * signal; each match is classified into a heritage bucket and written to
@@ -278,7 +300,7 @@ namespace save_earth.sources {
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
     /** Download world power plants by source from the WRI Global Power Plant
-      * Database — hydro (dams) / coal / solar / wind / nuclear, ~35k plants,
+      * Database - hydro (dams) / coal / solar / wind / nuclear, ~35k plants,
       * one GeoJSON per source. Every WRI field (name, capacity_mw, fuel,
       * commissioning year, country, owner) is kept for the popup. */
     event facet DownloadPowerPlants(
@@ -299,7 +321,7 @@ namespace save_earth.sources {
       * writes one annotated GeoJSON per source. Each plant carries its raw
       * resource value plus a ``siting_score`` (4..8) that the renderer maps onto
       * its yellow->red ramp: dark-red/large = excellent resource (well sited),
-      * yellow/small = poor. Order it with `after <DownloadPowerPlants step>` —
+      * yellow/small = poor. Order it with `after <DownloadPowerPlants step>` -
       * it reads what that step cached, so no value flows between them. */
     event facet AnnotateRenewableSiting(
         force: Boolean = false
@@ -311,7 +333,7 @@ namespace save_earth.sources {
         source_url: String
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "expensive") with Timeout(minutes = 30)
 
-    /** Download world ≥500 kV transmission lines from OpenStreetMap — BOUNDED +
+    /** Download world ≥500 kV transmission lines from OpenStreetMap - BOUNDED +
       * cache-aware. Fetches the tiles one at a time (Overpass rate-limits ~2 per
       * IP and the fleet shares one egress, so a wide fan-out just thrashes) and
       * ONLY when not already cached. ``force=true`` re-fetches. This is the form
@@ -343,10 +365,10 @@ namespace save_earth.sources {
         feature_count: Int
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate") with Timeout(minutes = 15)
 
-    /** Fan out the ≥500 kV transmission fetch across the tiles — one
+    /** Fan out the ≥500 kV transmission fetch across the tiles - one
       * DownloadTransmissionTile per tile, in parallel across the fleet, so a
       * region that times out retries on its own without sinking the whole fetch.
-      * (A `workflow` with a foreach body — not an `event facet` — so the runtime
+      * (A `workflow` with a foreach body - not an `event facet` - so the runtime
       * runs the fan-out rather than waiting for a handler.) */
     workflow ScanTransmissionTiles(
         tiles: Json
@@ -371,7 +393,7 @@ namespace save_earth.sources {
       *
       * Queries the OpenStreetMap Overpass API for every feature tagged
       * ``natural=volcano`` that also carries a ``wikidata`` or ``wikipedia``
-      * tag — encyclopedic notability as the "major" proxy (OSM has no reliable
+      * tag - encyclopedic notability as the "major" proxy (OSM has no reliable
       * global prominence/VEI tag), yielding ~1-2k worldwide. Every OSM tag is
       * kept verbatim as the feature's properties so the map popup can surface
       * all available information (name, ele, volcano:type, volcano:status, …).
@@ -487,8 +509,8 @@ namespace save_earth.sources {
 
     /** Download current US wildfire PERIMETERS (NIFC / WFIGS interagency feed).
       *
-      * Incident polygons — a named fire with acreage, containment, cause and
-      * discovery date — which is a different kind of data from the satellite
+      * Incident polygons - a named fire with acreage, containment, cause and
+      * discovery date - which is a different kind of data from the satellite
       * detections in DownloadActiveFire: those are anonymous hot pixels with no
       * incident identity.
       *
@@ -601,7 +623,7 @@ namespace save_earth.sources {
 }
 
 // ---------------------------------------------------------------------------
-// Maps — stitch cached GeoJSON into a MapLibre HTML bundle.
+// Maps - stitch cached GeoJSON into a MapLibre HTML bundle.
 // ---------------------------------------------------------------------------
 
 namespace save_earth.maps {
@@ -609,7 +631,7 @@ namespace save_earth.maps {
 
     /** Build a MapLibre HTML map with every cached save-earth layer.
       *
-      * Auto-discovers cached files — every OpenLitterMap GeoJSON under
+      * Auto-discovers cached files - every OpenLitterMap GeoJSON under
       * ``cache/save-earth/openlittermap/`` and every EPA dataset
       * becomes its own toggleable layer. Passing a dependency signal
       * (e.g. the ``feature_count`` from a just-finished download) lets
@@ -617,7 +639,7 @@ namespace save_earth.maps {
       * relies on.
       *
       * ``basemap_url`` / ``basemap_attribution`` let the caller swap
-      * the raster basemap. Default is CARTO Voyager — free, no API
+      * the raster basemap. Default is CARTO Voyager - free, no API
       * key, works from ``file://`` (unlike tile.openstreetmap.org,
       * which requires a Referer header per its volunteer-tile
       * policy). Supports ``{z}/{x}/{y}`` plus optional ``{s}`` for
@@ -655,7 +677,7 @@ namespace save_earth.workflows {
       * Downloads run in parallel (FFL ``andThen`` siblings are
       * scheduled concurrently when they don't reference each other).
       * Any download failure yields ``partial_failure`` with a
-      * describing ``detail`` but does not stop the map build — the
+      * describing ``detail`` but does not stop the map build - the
       * map-render tool skips absent layers gracefully. */
     workflow BuildGlobalMap(
         openlittermap_zoom: Int = 4,
@@ -811,7 +833,7 @@ namespace save_earth.workflows {
       * camera opens a popup showing every attribute the dataset carries
       * (manufacturer, operator, direction, surveillance:zone, ...).
       * The map build is ordered with ``after`` behind the download, since it
-      * reads only the cache. Camera LOCATIONS only — no video/plate data. */
+      * reads only the cache. Camera LOCATIONS only - no video/plate data. */
     workflow BuildALPRCameraMap(
         center_lat: Double = 39.8283,
         center_lon: Double = -98.5795,
@@ -855,6 +877,54 @@ namespace save_earth.workflows {
         )
     }
 
+    /** Build a map of scenic and historic roads with one checkbox per kind.
+      * Defaults to North America (where scenic=yes is overwhelmingly mapped);
+      * pass region = "world" / "europe" / "united-states" for the same map
+      * elsewhere - the region key drives BOTH the download and the layer
+      * selection, so no other parameter changes. Per-continent regions
+      * (south-america, africa, asia, australia-oceania) exist because
+      * region = "world" is data-viable but heavy: ~89,900 segments / ~49 MB,
+      * which inlines into an unwieldy page. Render continents, not the planet. */
+    workflow BuildScenicHistoricRoadsMap(
+        region: String = "north-america",
+        center_lat: Double = 44.0,
+        center_lon: Double = -100.0,
+        zoom: Double = 3.2,
+        max_inline_features: Int = 100000,
+        use_mock: Boolean = false
+    ) => (
+        status: String,
+        html_path: String,
+        detail: String
+    ) andThen {
+        roads = DownloadScenicHistoricRoads(
+            region = $.region,
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildScenicHistoricRoadsMap(status = "failed", html_path = "",
+                detail = "scenic/historic roads download failed")
+        }
+        map = BuildMap(
+            region = "scenic-historic-roads",
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            only_layers = "roads-" ++ $.region ++ "-*",
+            max_inline_features = $.max_inline_features,
+            attribution_workflow = "save_earth.workflows.BuildScenicHistoricRoadsMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "Scenic and historic roads from OpenStreetMap. Toggle each layer with the checkboxes in the Layers panel. Scenic = roads a mapper tagged scenic=yes (this is a mapper's judgement, NOT the official National Scenic Byway designation, which OSM does not carry as a distinct network). Historic = roads tagged historic=yes or a road-shaped historic value, plus route=historic relations whose members are confirmed roads (former state highways, auto trails, El Camino Real). Coverage is crowd-sourced and uneven: an untagged road is absent, not un-scenic."
+        ) after roads catch {
+            yield BuildScenicHistoricRoadsMap(status = "failed", html_path = "",
+                detail = "map build failed")
+        }
+        yield BuildScenicHistoricRoadsMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = "scenic/historic roads map: " ++ roads.feature_count ++ " road segments"
+        )
+    }
+
     /** Build a world map of nuclear test sites + missile silos (OSM), each a
       * separate toggleable layer (checkbox) so you can view either or both.
       * Publicly-tagged, fixed locations; coverage is incomplete. */
@@ -894,7 +964,7 @@ namespace save_earth.workflows {
         )
     }
 
-    /** Build a US map of data centers overlaid on principal-aquifer polygons —
+    /** Build a US map of data centers overlaid on principal-aquifer polygons -
       * where high-water-use compute sits over major groundwater. Downloads both
       * layers, then renders the aquifer fill under the data-center points. */
     workflow BuildDataCenterWaterMap(
@@ -944,7 +1014,7 @@ namespace save_earth.workflows {
       * Downloads the OSM enclave dataset (places named Chinatown / Japantown /
       * Little Italy / Koreatown / Little Saigon / Greektown / ...), classified
       * into one GeoJSON per heritage, then renders the MapLibre map with every
-      * enclave layer (only_layers="enclave-*") — each heritage its own coloured,
+      * enclave layer (only_layers="enclave-*") - each heritage its own coloured,
       * toggleable layer with a legend count. No curated field list, so clicking
       * any enclave shows every OSM tag (name first) plus any wikidata link. */
     workflow BuildEnclaveMap(
@@ -1372,7 +1442,7 @@ namespace save_earth.workflows {
       * The US companion to BuildWildfireMap. Three differences that matter:
       *
       * 1. Basemap is USGS The National Map (public domain, 24 zoom levels) rather
-      *    than the world CARTO raster — the topo look, legitimately. We do NOT use
+      *    than the world CARTO raster - the topo look, legitimately. We do NOT use
       *    CalTopo tiles: that is a subscription product with no third-party tile
       *    permission.
       * 2. Detections come from the REGION-scoped cache (`region = "us"`). The world

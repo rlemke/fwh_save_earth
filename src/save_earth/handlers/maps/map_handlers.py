@@ -12,6 +12,7 @@ from ..shared.save_earth_utils import (
     aquifers,
     datacenters,
     nuclear_sites,
+    scenic_historic_roads,
     enclaves,
     get_storage,
     power,
@@ -534,17 +535,59 @@ def _siting_layers(storage) -> list[map_render.LayerSpec]:
     return layers
 
 
+def _roads_layers(storage) -> list[map_render.LayerSpec]:
+    """Scenic + historic road LINES — two toggleable layers per cached region.
+
+    Both come off ONE cached file per region, split by the derived ``road_kind``
+    via the shared-source filter (same mechanism as the nuclear test-site /
+    missile-silo pair). Layer ids are ``roads-<region>-<kind>``, so a workflow
+    selects a whole region with ``only_layers="roads-north-america-*"`` — the
+    renderer's wildcard is trailing-only, which is why the region comes before
+    the kind in the name.
+    """
+    layers: list[map_render.LayerSpec] = []
+    try:
+        region_keys = list(scenic_historic_roads.regions())
+    except Exception:  # noqa: BLE001 - a bad/missing config must not kill every other map
+        logger.warning("road regions config unreadable; skipping road layers", exc_info=True)
+        return layers
+    popup = ["name", "route_name", "highway", "historic", "scenic", "surface",
+             "operator", "wikipedia", "osm_id"]
+    for region in region_keys:
+        rel = scenic_historic_roads.relative_path(region)
+        for kind, title, color, weight in (
+            ("scenic", "Scenic roads", "#1b9e77", 1.8),
+            ("historic", "Historic roads & routes", "#b2182b", 2.2),
+        ):
+            layers.append(
+                map_render.LayerSpec(
+                    name=f"roads-{region}-{kind}",
+                    title=title,
+                    source_cache_type=scenic_historic_roads.CACHE_TYPE,
+                    source_relative_path=rel,
+                    color=color,
+                    geometry="line",
+                    weight=weight,
+                    filter_field="road_kind",
+                    filter_value=kind,
+                    description_fields=popup,
+                )
+            )
+    return layers
+
+
 def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     """Handle BuildMap — auto-discover every cached layer and render HTML."""
     region = params.get("region", "global") or "global"
     center_lat = float(params.get("center_lat", 39.8283))
     center_lon = float(params.get("center_lon", -98.5795))
     zoom = float(params.get("zoom", 4.0))
-    # Empty-string overrides fall back to the library defaults (CARTO
-    # Voyager + OSM/CARTO attribution) so FFL callers can leave them
-    # unset without breaking rendering.
-    basemap_url = params.get("basemap_url", "") or map_render.DEFAULT_BASEMAP_URL
-    basemap_attr = params.get("basemap_attribution", "") or map_render.DEFAULT_BASEMAP_ATTRIBUTION
+    # Empty-string overrides fall back to the library defaults (OpenFreeMap
+    # positron + OSM/OpenFreeMap attribution, themselves env-overridable) so
+    # FFL callers can leave them unset without breaking rendering.
+    _def_url, _def_attr = map_render.default_basemap()
+    basemap_url = params.get("basemap_url", "") or _def_url
+    basemap_attr = params.get("basemap_attribution", "") or _def_attr
     # only_layers: comma-separated layer-name allowlist (empty = auto-discover
     # every cached layer, the global-map behaviour). Lets the nuclear/volcano
     # workflows render a single focused layer instead of every cached source.
@@ -583,6 +626,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
         + _enclave_layers(storage)
         + _power_layers(storage)
         + _siting_layers(storage)
+        + _roads_layers(storage)
     )
     if only:
         # Exact name match, plus a trailing-"*" prefix wildcard so a workflow can

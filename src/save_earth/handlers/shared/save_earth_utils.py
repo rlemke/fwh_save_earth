@@ -31,6 +31,7 @@ from _save_earth_tools import (  # noqa: E402,F401
     aquifers,
     datacenters,
     nuclear_sites,
+    scenic_historic_roads,
     enclaves,
     power,
     epa_cleanups,

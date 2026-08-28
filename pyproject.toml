@@ -38,6 +38,7 @@ where = ["src"]
 save_earth = [
     "ffl/*.ffl",
     "catalog.yaml",
+    "data/*.json",
 ]
 
 [tool.ruff]
