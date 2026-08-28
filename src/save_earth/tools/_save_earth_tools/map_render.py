@@ -569,8 +569,6 @@ def _render_html(
         const map = new maplibregl.Map({{
           container: 'map',
           style: BASEMAP_STYLE,
-            layers: [{{ id: 'basemap', type: 'raster', source: 'basemap' }}]
-          }},
           center: [{center_lon}, {center_lat}],
           zoom: {zoom},
           hash: true

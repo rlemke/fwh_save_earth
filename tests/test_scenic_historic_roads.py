@@ -167,3 +167,38 @@ def test_rendered_page_uses_the_basemap_style_constant(local_storage):
     assert "const BASEMAP_STYLE" in html
     assert "style: BASEMAP_STYLE" in html
     assert "tiles: BASEMAP_TILES" not in html      # the ignored inline block
+
+
+def test_generated_javascript_actually_parses(local_storage):
+    """The generated page's inline JS must PARSE.
+
+    A malformed template once emitted an orphaned `layers: [...]` and a stray
+    brace after `style: BASEMAP_STYLE,`. That is a syntax error, so the whole
+    script failed to load: the map never constructed (blank white page) and the
+    "About this data" popup could not be dismissed, because its handler was
+    never bound. Both symptoms, one cause.
+
+    Asserting on the presence/absence of substrings did NOT catch it - only
+    parsing does.
+    """
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is required to syntax-check the generated JS")
+
+    from save_earth.handlers.maps import map_handlers
+    from save_earth.handlers.sources import source_handlers
+    source_handlers.handle({"_facet_name": "save_earth.sources.DownloadScenicHistoricRoads",
+                            "region": "north-america", "use_mock": True, "force": True})
+    out = map_handlers.handle_build_map({"region": "scenic-historic-roads",
+                                         "only_layers": "roads-north-america-*"})
+    html = open(out["html_path"]).read()
+    blocks = re.findall(r"<script>(.*?)</script>", html, re.S)
+    assert blocks, "no inline <script> found - the template changed shape"
+    for n, body in enumerate(blocks):
+        js = local_storage / f"block_{n}.js"
+        js.write_text(body)
+        res = subprocess.run([node, "--check", str(js)], capture_output=True, text=True)
+        assert res.returncode == 0, f"block {n} is not valid JS:\n{res.stderr}"
