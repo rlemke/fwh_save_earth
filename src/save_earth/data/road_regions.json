@@ -124,14 +124,14 @@
     ]
   },
   "layer_sources": {
-    "_comment": "Overpass selectors per layer. Measured in North America 2026-08-28, the per-way tags alone are badly under-applied and geographically biased: scenic=yes covers 4,915 km with only 428 distinct names, dominated by a handful of Florida roads. The DESIGNATED routes are modelled as route RELATIONS carrying a network tag (US:CO:Scenic, US:OH:Byway, US:NHT, US:auto_trail, ...), which yields 36,404 km of scenic and 56,185 km of historic - 8x and 28x more. Both are unioned and deduplicated by way id. Relation members are always gated on being [highway]. A relation selector may be a plain string, or an object with verify_highway_members=true. That extra check costs a SECOND Overpass query that recurses to every member (way(r.r)[highway]) and 504s on wide selectors, so it is opt-in: route=road already means road, while route=historic mixes in railways and transit and genuinely needs it.",
+    "_comment": "Overpass selectors per layer. Measured in North America 2026-08-28, the per-way tags alone are badly under-applied and geographically biased: scenic=yes covers 4,915 km with only 428 distinct names, dominated by a handful of Florida roads. The DESIGNATED routes are modelled as route RELATIONS carrying a network tag (US:CO:Scenic, US:OH:Byway, US:NHT, US:auto_trail, ...), which yields 36,404 km of scenic and 56,185 km of historic - 8x and 28x more. Both are unioned and deduplicated by way id. Relation members are always gated on being [highway]. A relation selector may be a plain string, or an object with verify_highway_members=true. That extra check costs a SECOND Overpass query that recurses to every member (way(r.r)[highway]) and 504s on wide selectors, so it is opt-in: route=road already means road, while route=historic mixes in railways and transit and genuinely needs it. The scenic RELATION selectors are tuned for North America because that is where the convention exists: OSM has no scenic-road route type at scale (route=scenic_route is 3 relations worldwide, route=tourism is 11). Europe is covered only by the ~14 tourist/panoramic network relations plus per-way scenic=yes, so a European scenic layer is genuinely thin - that is the data, not a gap in these selectors.",
     "scenic": {
       "way_selectors": [
         "way[\"scenic\"=\"yes\"][\"highway\"]"
       ],
       "relation_selectors": [
-        "relation[\"route\"=\"road\"][\"network\"~\"scenic|byway|nsb\",i]",
-        "relation[\"route\"=\"road\"][\"name\"~\"Scenic Byway|Scenic Highway|Scenic Drive|Scenic Route\",i]"
+        "relation[\"route\"=\"road\"][\"network\"~\"scenic|byway|nsb|ferien|tourist|panorama\",i]",
+        "relation[\"route\"=\"road\"][\"name\"~\"Scenic Byway|Scenic Highway|Scenic Drive|Scenic Route|Touristique|Turistica|Panoramica|Panoramastra|Ferienstra\",i]"
       ]
     },
     "historic": {
