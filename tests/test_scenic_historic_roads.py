@@ -52,14 +52,27 @@ def test_regions_config_has_bbox_and_world_is_unbounded():
     assert m._bbox_clause(na).startswith("(")
 
 
-def test_queries_never_use_a_bare_historic_key():
+def test_selectors_never_use_a_bare_tag_key():
     """A bare `[historic]` makes Overpass scan every historic object (all the
-    ruins/tombs/buildings) before intersecting — it blew a client timeout in
-    testing. Every sub-query must pin a VALUE."""
+    ruins/tombs/buildings) before intersecting - it blew a client timeout in
+    testing. Every configured selector must pin a VALUE or a regex."""
     m = _mod()
-    for _kind, q in m._queries("north-america"):
-        assert '["historic"]' not in q
-        assert '["scenic"]' not in q
+    for kind, cfg in m.layer_sources().items():
+        for sel in cfg["way_selectors"] + [e["selector"] for e in cfg["relation_selectors"]]:
+            assert '["historic"]' not in sel, (kind, sel)
+            assert '["scenic"]' not in sel, (kind, sel)
+            assert '["network"]' not in sel, (kind, sel)
+
+
+def test_layer_sources_cover_both_kinds_with_relations():
+    """The designated routes live in RELATIONS; per-way tags alone under-report
+    by ~8x (scenic) and ~28x (historic), so every kind must query both."""
+    m = _mod()
+    src = m.layer_sources()
+    assert set(src) == {"scenic", "historic"}
+    for kind, cfg in src.items():
+        assert cfg["way_selectors"], kind
+        assert cfg["relation_selectors"], kind
 
 
 def test_relation_members_are_gated_on_confirmed_road_ids():
@@ -77,7 +90,8 @@ def test_relation_members_are_gated_on_confirmed_road_ids():
     }
     feats = m._to_features(el, "historic", {100})
     assert len(feats) == 1
-    assert feats[0]["properties"]["osm_id"] == "relation/7/100"
+    # Keyed by WAY id so the same road reached via several relations dedupes.
+    assert feats[0]["properties"]["osm_id"] == "way/100"
     # The RELATION carries the route name; a member way alone would not.
     assert feats[0]["properties"]["route_name"] == "Old MN 112"
     assert feats[0]["properties"]["name"] == "Old MN 112"
@@ -202,3 +216,41 @@ def test_generated_javascript_actually_parses(local_storage):
         js.write_text(body)
         res = subprocess.run([node, "--check", str(js)], capture_output=True, text=True)
         assert res.returncode == 0, f"block {n} is not valid JS:\n{res.stderr}"
+
+
+def test_simplify_keeps_endpoints_and_shape():
+    m = _mod()
+    # Collinear interior points are redundant at any tolerance.
+    line = [[0, 0], [1, 0.00001], [2, 0], [3, 0]]
+    out = m._simplify(line, 0.0003)
+    assert out[0] == [0, 0] and out[-1] == [3, 0]
+    assert len(out) == 2
+    # A real deviation must survive, or the road changes shape.
+    assert len(m._simplify([[0, 0], [1, 0.5], [2, 0]], 0.0003)) == 3
+    # Disabled is exactly a no-op.
+    assert m._simplify(line, 0) == line
+    # Degenerate inputs must not raise.
+    assert m._simplify([[0, 0], [1, 1]], 0.0003) == [[0, 0], [1, 1]]
+
+
+def test_simplify_is_iterative_not_recursive():
+    """A recursive RDP hits Python's recursion limit on a long way; OSM ways
+    routinely carry thousands of nodes."""
+    m = _mod()
+    import math as _m
+    zig = [[i * 0.001, (i % 2) * 0.02] for i in range(6000)]
+    assert len(m._simplify(zig, 0.0003)) > 2      # completes without RecursionError
+    assert not _m.isnan(zig[0][0])
+
+
+def test_relation_members_dedupe_by_way_id():
+    """The same way belongs to several route relations (the Lewis and Clark
+    auto tour is split across many), and is often ALSO tagged scenic=yes.
+    Keying features by relation/way drew - and counted - it repeatedly."""
+    m = _mod()
+    el = {"type": "relation", "id": 7,
+          "tags": {"name": "Santa Fe Trail", "route": "road", "network": "US:NHT"},
+          "members": [{"type": "way", "ref": 100,
+                       "geometry": [{"lat": 1.0, "lon": 2.0}, {"lat": 1.1, "lon": 2.1}]}]}
+    feats = m._to_features(el, "historic", {100})
+    assert feats[0]["properties"]["osm_id"] == "way/100"
