@@ -197,16 +197,16 @@ def main() -> int:
         "--basemap-url",
         default=map_render.DEFAULT_BASEMAP_URL,
         help=(
-            "Raster tile URL template (supports {z}/{x}/{y} and optional {s} "
-            "for subdomain). Default: CARTO Voyager, which is free, no-key, "
-            "and works from file:// — unlike tile.openstreetmap.org, which "
-            "blocks requests without a Referer header."
+            "Basemap: either a MapLibre style URL, or a raster tile template "
+            "(supports {z}/{x}/{y} and optional {s} for subdomain). Default: "
+            "OpenFreeMap positron - no API key, no usage limits. (CARTO Voyager, "
+            "the old default, now watermarks tiles 'API KEY REQUIRED'.)"
         ),
     )
     parser.add_argument(
         "--basemap-attribution",
         default=map_render.DEFAULT_BASEMAP_ATTRIBUTION,
-        help="Attribution HTML to display. Default cites OpenStreetMap + CARTO.",
+        help="Attribution HTML to display. Default cites OpenStreetMap + OpenFreeMap.",
     )
     parser.add_argument(
         "--backend",

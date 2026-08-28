@@ -9,12 +9,15 @@ Output::
 
     cache/save-earth/maps/<region>/index.html              (+ .meta.json sibling)
 
-Basemap: CARTO Voyager raster tiles by default — free, no API key,
-works from ``file://`` origins (OSM's direct tile server rejects
-no-Referer requests per its volunteer-tile usage policy, so opening
-the HTML locally against osm.org 403s). Callers can swap via
-``basemap_url`` / ``basemap_attribution`` on :func:`render_map` if
-they have their own tile provider.
+Basemap: OpenFreeMap "positron" vector tiles by default — a muted light
+style with labels, no API key, no usage limits. Callers can swap via
+``basemap_url`` / ``basemap_attribution`` on :func:`render_map`, or by
+setting ``FW_BASEMAP_URL`` / ``FW_BASEMAP_ATTRIBUTION``; either a MapLibre
+style URL or a ``{z}/{x}/{y}`` raster template is accepted.
+
+⚠️ The previous default (CARTO Voyager) is no longer keyless: it serves a
+200 OK PNG with "API KEY REQUIRED" stamped across it, so maps kept
+rendering while silently showing the watermark.
 
 For the first version we inline every source's GeoJSON directly into
 the HTML as JS constants. This avoids needing tippecanoe / PMTiles or
@@ -30,6 +33,7 @@ import hashlib
 import html as html_mod
 import json
 import logging
+import os
 import sys
 import textwrap
 from dataclasses import dataclass
@@ -48,18 +52,39 @@ logger = logging.getLogger("save-earth.map_render")
 NAMESPACE = "save-earth"
 CACHE_TYPE = "maps"
 
-# Default basemap — CARTO Voyager. Free, no key required, permissive
-# terms (attribute CARTO + OSM). Unlike tile.openstreetmap.org, CARTO
-# does not require a Referer header, so the generated HTML opens
-# correctly from file:// without tripping the OSM tile usage policy.
-DEFAULT_BASEMAP_URL = (
-    "https://cartodb-basemaps-{s}.global.ssl.fastly.net/rastertiles/voyager/{z}/{x}/{y}.png"
-)
+# Default basemap — OpenFreeMap "positron": a muted light style that lets a
+# data overlay read, with place labels, served without an API key and with no
+# usage limits.
+#
+# ⚠️ It replaced CARTO Voyager, which this file previously described as "free,
+# no key required". That stopped being true: CARTO now returns HTTP 200 with a
+# valid PNG that has "API KEY REQUIRED" stamped diagonally across it. Nothing
+# fails — no 403, no broken tile, no console error — so every map kept
+# "working" while quietly rendering the watermark. Verify a basemap change by
+# LOOKING at a tile, not by checking the status code.
+#
+# Either form is accepted here and both are env-overridable (FW_BASEMAP_URL /
+# FW_BASEMAP_ATTRIBUTION):
+#   * a MapLibre STYLE URL (no "{z}") — used as the map style directly;
+#   * a RASTER tile template containing "{z}/{x}/{y}" (optionally "{s}").
+DEFAULT_BASEMAP_URL = "https://tiles.openfreemap.org/styles/positron"
 DEFAULT_BASEMAP_SUBDOMAINS = ["a", "b", "c", "d"]
 DEFAULT_BASEMAP_ATTRIBUTION = (
     '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> '
-    'contributors © <a href="https://carto.com/attributions">CARTO</a>'
+    'contributors © <a href="https://openfreemap.org/">OpenFreeMap</a>'
 )
+
+
+def default_basemap() -> tuple[str, str]:
+    """(url, attribution), letting a deployment repoint the basemap by env."""
+    url = os.environ.get("FW_BASEMAP_URL", "").strip() or DEFAULT_BASEMAP_URL
+    attr = os.environ.get("FW_BASEMAP_ATTRIBUTION", "").strip() or DEFAULT_BASEMAP_ATTRIBUTION
+    return url, attr
+
+
+def is_raster_basemap(url: str) -> bool:
+    """A tile template (has {z}) vs a MapLibre style URL."""
+    return "{z}" in url
 
 
 @dataclass
@@ -308,14 +333,25 @@ def _render_html(
     description: str = "",
     max_inline_features: int = 50_000,
 ) -> str:
-    # Expand {s} → list of subdomains MapLibre understands. CARTO's
-    # default URL uses {s} but Fastly's subdomains are a/b/c/d.
-    if "{s}" in basemap_url:
-        tile_urls_js = json.dumps(
-            [basemap_url.replace("{s}", d) for d in DEFAULT_BASEMAP_SUBDOMAINS]
-        )
+    # Two basemap forms. A style URL is handed to MapLibre as-is; a raster
+    # template becomes an inline one-source style. Data layers are added in
+    # map.on('load'), which fires after EITHER kind of style finishes loading,
+    # so nothing downstream cares which was used.
+    if is_raster_basemap(basemap_url):
+        # Expand {s} → the list of subdomains MapLibre understands.
+        if "{s}" in basemap_url:
+            tiles = [basemap_url.replace("{s}", d) for d in DEFAULT_BASEMAP_SUBDOMAINS]
+        else:
+            tiles = [basemap_url]
+        basemap_style_js = json.dumps({
+            "version": 8,
+            "sources": {"basemap": {"type": "raster", "tiles": tiles,
+                                    "tileSize": 256, "attribution": basemap_attribution}},
+            "layers": [{"id": "basemap", "type": "raster", "source": "basemap"}],
+        })
     else:
-        tile_urls_js = json.dumps([basemap_url])
+        basemap_style_js = json.dumps(basemap_url)
+    tile_urls_js = json.dumps([basemap_url])
     # Inlined GeoJSON as a single JS dict keyed by layer id. Putting each
     # layer's FeatureCollection in its own top-level `const` wouldn't be
     # visible on `window` in modern JS (block-scoped), so the map's
