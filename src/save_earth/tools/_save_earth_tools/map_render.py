@@ -52,9 +52,17 @@ logger = logging.getLogger("save-earth.map_render")
 NAMESPACE = "save-earth"
 CACHE_TYPE = "maps"
 
-# Default basemap — OpenFreeMap "positron": a muted light style that lets a
-# data overlay read, with place labels, served without an API key and with no
-# usage limits.
+# Default basemap — OpenStreetMap standard RASTER tiles: keyless, labelled, and
+# the same ODbL data these maps overlay.
+#
+# ⚠️ Raster on purpose. A raster basemap is fetched as plain <img> tiles: no
+# fetch/XHR, no CORS preflight, no style/TileJSON/glyph/sprite chain. A vector
+# style (e.g. OpenFreeMap positron, which is keyless and looks better under a
+# dense overlay) needs all of that to succeed, and when any link fails the map
+# renders a BLANK WHITE page rather than an error. These files are opened from
+# file:// and from embedded viewers where that chain is not guaranteed, so the
+# default trades appearance for "always shows a map". Point FW_BASEMAP_URL at
+# https://tiles.openfreemap.org/styles/positron to opt into the vector style.
 #
 # ⚠️ It replaced CARTO Voyager, which this file previously described as "free,
 # no key required". That stopped being true: CARTO now returns HTTP 200 with a
@@ -67,11 +75,10 @@ CACHE_TYPE = "maps"
 # FW_BASEMAP_ATTRIBUTION):
 #   * a MapLibre STYLE URL (no "{z}") — used as the map style directly;
 #   * a RASTER tile template containing "{z}/{x}/{y}" (optionally "{s}").
-DEFAULT_BASEMAP_URL = "https://tiles.openfreemap.org/styles/positron"
+DEFAULT_BASEMAP_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 DEFAULT_BASEMAP_SUBDOMAINS = ["a", "b", "c", "d"]
 DEFAULT_BASEMAP_ATTRIBUTION = (
-    '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> '
-    'contributors © <a href="https://openfreemap.org/">OpenFreeMap</a>'
+    '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 )
 
 
@@ -554,18 +561,14 @@ def _render_html(
         const BASEMAP_TILES = {tile_urls_js};
         const BASEMAP_ATTRIBUTION = {json.dumps(basemap_attribution)};
 
+        // Either a MapLibre style URL (string) or an inline raster style
+        // (object) - see is_raster_basemap(). Data layers are added in
+        // map.on('load'), which fires after EITHER kind finishes loading.
+        const BASEMAP_STYLE = {basemap_style_js};
+
         const map = new maplibregl.Map({{
           container: 'map',
-          style: {{
-            version: 8,
-            sources: {{
-              basemap: {{
-                type: 'raster',
-                tiles: BASEMAP_TILES,
-                tileSize: 256,
-                attribution: BASEMAP_ATTRIBUTION
-              }}
-            }},
+          style: BASEMAP_STYLE,
             layers: [{{ id: 'basemap', type: 'raster', source: 'basemap' }}]
           }},
           center: [{center_lon}, {center_lat}],

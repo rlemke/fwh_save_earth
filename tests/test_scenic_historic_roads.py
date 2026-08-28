@@ -126,19 +126,44 @@ def test_two_toggle_layers_off_one_source(local_storage):
     assert {s["filter_value"] for s in specs} == {"scenic", "historic"}
 
 
-def test_default_basemap_is_keyless_and_style_form():
-    """CARTO's tiles now carry an "API KEY REQUIRED" watermark while still
-    returning 200 OK, so the default must not point at them."""
+def test_default_basemap_is_keyless_raster():
+    """Two separate regressions are pinned here.
+
+    1. CARTO's tiles now carry an "API KEY REQUIRED" watermark while still
+       returning 200 OK, so the default must not point at them.
+    2. The default must be a RASTER template. A vector style renders a blank
+       white page if any link in its style/TileJSON/glyph chain fails, which
+       is exactly what happened when a style URL was passed where a tile
+       template was expected.
+    """
     from save_earth.handlers.shared.save_earth_utils import map_render
     url, attr = map_render.default_basemap()
     assert "cartodb" not in url and "carto.com" not in attr
-    # A style URL, not a raster template -> handed to MapLibre directly.
+    assert map_render.is_raster_basemap(url)
+
+
+def test_vector_style_basemap_still_supported(monkeypatch):
+    """Opting into a vector style must still work (FW_BASEMAP_URL)."""
+    from save_earth.handlers.shared.save_earth_utils import map_render
+    monkeypatch.setenv("FW_BASEMAP_URL", "https://tiles.openfreemap.org/styles/positron")
+    url, _ = map_render.default_basemap()
     assert not map_render.is_raster_basemap(url)
 
 
-def test_raster_basemap_still_supported(monkeypatch):
-    """A deployment with its own tile server must still work."""
-    from save_earth.handlers.shared.save_earth_utils import map_render
-    monkeypatch.setenv("FW_BASEMAP_URL", "https://tiles.example/{z}/{x}/{y}.png")
-    url, _ = map_render.default_basemap()
-    assert map_render.is_raster_basemap(url)
+def test_rendered_page_uses_the_basemap_style_constant(local_storage):
+    """The template must actually CONSUME the computed style.
+
+    It previously computed `basemap_style_js` and then ignored it, leaving the
+    old inline raster block that fed a style URL in as a tile template - the
+    page fetched JSON as if it were a PNG and rendered blank white.
+    """
+    from save_earth.handlers.maps import map_handlers
+    from save_earth.handlers.sources import source_handlers
+    source_handlers.handle({"_facet_name": "save_earth.sources.DownloadScenicHistoricRoads",
+                            "region": "north-america", "use_mock": True, "force": True})
+    out = map_handlers.handle_build_map({"region": "scenic-historic-roads",
+                                         "only_layers": "roads-north-america-*"})
+    html = open(out["html_path"]).read()
+    assert "const BASEMAP_STYLE" in html
+    assert "style: BASEMAP_STYLE" in html
+    assert "tiles: BASEMAP_TILES" not in html      # the ignored inline block
