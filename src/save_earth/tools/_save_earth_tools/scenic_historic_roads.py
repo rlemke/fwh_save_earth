@@ -148,6 +148,31 @@ def region_config(region: str) -> dict[str, Any]:
     return regs[region]
 
 
+def source_backend() -> str:
+    """"overpass" (default) or "local" - where the OSM data is read from.
+
+    Overpass is a query API over the same OSM data we already host as continent
+    extracts. The local backend needs no third-party service, is faster, and
+    records the extract's replication timestamp; it needs a PRE-FILTERED pbf
+    (see roads_local). Config key `source`, env FW_ROADS_SOURCE.
+    """
+    return (os.environ.get("FW_ROADS_SOURCE", "").strip()
+            or str(_config().get("source", "") or "").strip()
+            or "overpass").lower()
+
+
+def local_pbf_dir() -> str:
+    return os.environ.get("FW_ROADS_PBF_DIR", "").strip() or "/tmp/osm_local"
+
+
+def local_pbf_path(region: str) -> str:
+    """Path of the pre-filtered extract backing `region`."""
+    from _save_earth_tools.roads_local import DEFAULT_REGION_FILES
+    mapping = _config().get("region_files") or DEFAULT_REGION_FILES
+    name = mapping.get(region, region)
+    return os.path.join(local_pbf_dir(), f"roads_{name}.osm.pbf")
+
+
 def relative_path(region: str) -> str:
     """Cache path is region-scoped so several regions coexist."""
     return f"scenic_historic_roads_{region.replace('/', '_')}.geojson"
@@ -238,6 +263,20 @@ def download(*, region: str = DEFAULT_REGION, force: bool = False,
                                           True, overpass_endpoints()[0])
         if use_mock:
             features, source_url, used_mock = _mock_features(), "mock://scenic-historic-roads", True
+        elif source_backend() == "local":
+            from _save_earth_tools import roads_local
+            path = local_pbf_path(region)
+            if not os.path.exists(path):
+                raise RuntimeError(
+                    f"local backend: no filtered extract at {path}. Build it with "
+                    f"`osmium tags-filter <region>-latest.osm.pbf ...` - see roads_local.")
+            tol = simplify_tolerance()
+            features = roads_local.extract(
+                path, layer_sources(),
+                exclusions=historic_route_exclusions(),
+                simplify=(lambda c: _simplify(c, tol)) if tol else None)
+            source_url, used_mock = f"file://{path}", False
+            logger.info("local backend: %d features from %s", len(features), path)
         else:
             if requests is None:
                 raise RuntimeError("requests is not installed; run via the .sh wrapper or --use-mock.")
