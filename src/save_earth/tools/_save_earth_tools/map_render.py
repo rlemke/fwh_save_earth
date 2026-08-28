@@ -120,6 +120,12 @@ class LayerSpec:
     # ramp — needed when the colour already encodes something else (fire layers
     # colour by CONFIDENCE, and having the ramp override it made the legend lie).
     magnitude_color: bool = True
+    # Draw a small dot at a representative point of each NAMED route (a
+    # MultiLineString, or anything carrying route_name) as a visible "click
+    # here" affordance. A 2 px line is a very small target and gives the reader
+    # no clue where the clickable places are. Off by default: a fault or
+    # transmission-line map wants the bare line.
+    route_markers: bool = False
     filter_field: str = ""  # render only features where properties[filter_field]==filter_value.
     filter_value: str = ""  # Lets several LayerSpecs (e.g. a vendor split) share ONE cached
     #                         file — the GeoJSON is inlined once and each layer filters it,
@@ -405,6 +411,7 @@ def _render_html(
                 "magnitude_stops": list(layer.magnitude_stops),
                 "magnitude_radii": list(layer.magnitude_radii),
                 "magnitude_color": layer.magnitude_color,
+                "route_markers": layer.route_markers,
                 "filter_field": layer.filter_field,
                 "filter_value": layer.filter_value,
             }
@@ -577,6 +584,41 @@ def _render_html(
         // Normal paint: radius stays at spec.radius; clusters with
         // point_count auto-scale a little so dense areas read bigger.
         // Order property keys so a name-like field is listed first in popups.
+        // A representative point for each NAMED route, derived from the data
+        // already inlined for the line layer - so the dots cost no extra bytes.
+        // Midpoint of the LONGEST part: for a multi-part route that is the
+        // piece a reader is most likely looking at, whereas the naive "first
+        // coordinate" drops the dot at an arbitrary county line.
+        function routeMarkers(spec, flt) {{
+          const fc = LAYER_DATA[spec.source_id] || {{ features: [] }};
+          const out = [];
+          for (const f of fc.features || []) {{
+            const p = f.properties || {{}};
+            if (spec.filter_field && p[spec.filter_field] !== spec.filter_value) continue;
+            // Only NAMED routes get a dot. Marking all ~9,000 individually
+            // tagged ways would bury the map and defeat the purpose.
+            const g = f.geometry || {{}};
+            if (g.type !== 'MultiLineString' && !p.route_name) continue;
+            const parts = g.type === 'MultiLineString' ? g.coordinates
+                        : (g.type === 'LineString' ? [g.coordinates] : []);
+            let best = null, bestLen = -1;
+            for (const part of parts) {{
+              if (!part || part.length < 2) continue;
+              let len = 0;
+              for (let i = 1; i < part.length; i++) {{
+                len += Math.hypot(part[i][0] - part[i-1][0], part[i][1] - part[i-1][1]);
+              }}
+              if (len > bestLen) {{ bestLen = len; best = part; }}
+            }}
+            if (!best) continue;
+            out.push({{ type: 'Feature',
+                        geometry: {{ type: 'Point',
+                                    coordinates: best[Math.floor(best.length / 2)] }},
+                        properties: p }});
+          }}
+          return {{ type: 'FeatureCollection', features: out }};
+        }}
+
         function nameFirst(fields) {{
           const NK = ['name','primary_name','official_name','NAME','SITE_NAME',
                       'FACILITY_NAME','title'];
@@ -653,6 +695,9 @@ def _render_html(
               continue;
             }}
             const flt = filterOf(spec);
+            // Every id a click should open this layer's popup on: the drawn
+            // layer, plus the invisible wide hit line and the route dots.
+            const targets = [spec.id];
             if (spec.geometry === 'heatmap') {{
               const lyr = {{
                 id: spec.id, type: 'heatmap', source: spec.source_id,
@@ -692,6 +737,39 @@ def _render_html(
               }};
               if (flt) lyr.filter = flt;
               map.addLayer(lyr);
+              // INVISIBLE hit target. A 2 px line is roughly a 2 px click
+              // target, so most clicks land on the basemap and nothing opens.
+              // This draws nothing (opacity 0) but widens what the click test
+              // sees, so the popup opens anywhere along a route.
+              const hit = {{
+                id: spec.id + '__hit', type: 'line', source: spec.source_id,
+                layout: {{ 'line-join': 'round', 'line-cap': 'round' }},
+                paint: {{ 'line-color': spec.color, 'line-width': 14, 'line-opacity': 0 }}
+              }};
+              if (flt) hit.filter = flt;
+              map.addLayer(hit);
+              targets.push(hit.id);
+
+              // Visible affordance: a dot per NAMED route, so a reader can see
+              // where to click instead of hunting along the line.
+              if (spec.route_markers) {{
+                const pts = routeMarkers(spec, flt);
+                if (pts.features.length) {{
+                  const msrc = spec.id + '__dots';
+                  if (!map.getSource(msrc)) map.addSource(msrc, {{ type: 'geojson', data: pts }});
+                  map.addLayer({{
+                    id: msrc, type: 'circle', source: msrc,
+                    paint: {{
+                      'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 3.2, 10, 6],
+                      'circle-color': spec.color,
+                      'circle-stroke-width': 1.5,
+                      'circle-stroke-color': '#fff',
+                      'circle-opacity': 0.95
+                    }}
+                  }});
+                  targets.push(msrc);
+                }}
+              }}
             }} else {{
               const lyr = {{
                 id: spec.id, type: 'circle', source: spec.source_id,
@@ -764,9 +842,14 @@ def _render_html(
             const cb = document.createElement('input');
             cb.type = 'checkbox'; cb.checked = true;
             cb.addEventListener('change', () => {{
-              map.setLayoutProperty(
-                spec.id, 'visibility', cb.checked ? 'visible' : 'none'
-              );
+              // A line layer now owns up to three map layers: the drawn line,
+              // the invisible hit target and the route dots. Toggling only the
+              // drawn one would leave a hidden layer still answering clicks and
+              // its dots still on screen - the checkbox would look broken.
+              const vis = cb.checked ? 'visible' : 'none';
+              for (const id of [spec.id, spec.id + '__hit', spec.id + '__dots']) {{
+                if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis);
+              }}
             }});
             const swatch = document.createElement('span');
             swatch.className = 'swatch';

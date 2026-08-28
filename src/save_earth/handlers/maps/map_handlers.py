@@ -568,6 +568,7 @@ def _roads_layers(storage) -> list[map_render.LayerSpec]:
                     color=color,
                     geometry="line",
                     weight=weight,
+                    route_markers=True,
                     filter_field="road_kind",
                     filter_value=kind,
                     description_fields=popup,

@@ -254,3 +254,54 @@ def test_relation_members_dedupe_by_way_id():
                        "geometry": [{"lat": 1.0, "lon": 2.0}, {"lat": 1.1, "lon": 2.1}]}]}
     feats = m._to_features(el, "historic", {100})
     assert feats[0]["properties"]["osm_id"] == "way/100"
+
+
+def _built_html(local_storage):
+    from save_earth.handlers.maps import map_handlers
+    from save_earth.handlers.sources import source_handlers
+    source_handlers.handle({"_facet_name": "save_earth.sources.DownloadScenicHistoricRoads",
+                            "region": "north-america", "use_mock": True, "force": True})
+    out = map_handlers.handle_build_map({"region": "scenic-historic-roads",
+                                         "only_layers": "roads-north-america-*"})
+    return open(out["html_path"]).read()
+
+
+def test_line_layers_get_a_wide_invisible_hit_target(local_storage):
+    """A 2 px line is a ~2 px click target, so most clicks missed the route and
+    nothing opened. The hit layer draws nothing but widens the click test."""
+    html = _built_html(local_storage)
+    assert "__hit" in html
+    assert "'line-width': 14" in html and "'line-opacity': 0 }" in html
+
+
+def test_route_markers_are_declared_and_rendered(local_storage):
+    """Dots are the discoverability half: without them a reader cannot tell
+    where a route is clickable."""
+    html = _built_html(local_storage)
+    assert "function routeMarkers" in html
+    assert "__dots" in html
+    specs = json.loads(re.search(r"const LAYER_SPECS = (\[.*?\]);", html, re.S).group(1))
+    assert specs and all(s["route_markers"] for s in specs), \
+        "route_markers must survive into LAYER_SPECS - the serializer is a whitelist"
+
+
+def test_layer_toggle_covers_hit_and_dot_layers(local_storage):
+    """A line layer owns up to three map layers. Toggling only the drawn one
+    leaves a hidden layer answering clicks and its dots on screen."""
+    html = _built_html(local_storage)
+    assert "[spec.id, spec.id + '__hit', spec.id + '__dots']" in html
+
+
+def test_route_marker_rule_selects_only_named_routes():
+    """Every MultiLineString (a route) and anything carrying route_name gets a
+    dot; the ~9,000 individually tagged ways must not, or the map is buried."""
+    m = _mod()
+    rel = {"type": "relation", "id": 5,
+           "tags": {"name": "Lincoln Highway", "route": "road", "network": "US:auto_trail"},
+           "members": [{"type": "way", "ref": 1,
+                        "geometry": [{"lat": 1.0, "lon": 2.0}, {"lat": 1.2, "lon": 2.2}]}]}
+    assert m._to_features(rel, "historic", {1})[0]["properties"]["route_name"] == "Lincoln Highway"
+    way = {"type": "way", "id": 9, "tags": {"scenic": "yes", "highway": "secondary"},
+           "geometry": [{"lat": 1.0, "lon": 2.0}, {"lat": 1.1, "lon": 2.1}]}
+    # A plain tagged way carries no route_name, so it gets no dot.
+    assert not m._to_features(way, "scenic")[0]["properties"].get("route_name")
