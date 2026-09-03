@@ -1,0 +1,8 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  domain:
+    uses: rlemke/facetwork/.github/workflows/domain-ci.yml@main
+    with:
+      extras: "dev"
