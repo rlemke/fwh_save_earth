@@ -21,6 +21,7 @@ from ..shared.save_earth_utils import (
     power,
     epa_cleanups,
     lgbtq,
+    hydro,
     nuclear,
     openlittermap,
     parse_bbox,
@@ -153,6 +154,23 @@ def handle_download_nuclear_reactors(params: dict[str, Any]) -> dict[str, Any]:
         "success",
     )
     return {"cache_type": nuclear.CACHE_TYPE, **_result_payload(res)}
+
+
+def handle_download_hydro_plants(params: dict[str, Any]) -> dict[str, Any]:
+    """Handle DownloadHydroPlants — worldwide hydroelectric plants from OSM."""
+    force = bool(params.get("force", False))
+    use_mock = bool(params.get("use_mock", False))
+    step_log = params.get("_step_log")
+
+    _step_log(step_log, f"DownloadHydroPlants force={force} use_mock={use_mock}")
+    res = hydro.download(force=force, use_mock=use_mock)
+    status = "cache" if res.was_cached else ("mock" if res.used_mock else "download")
+    _step_log(
+        step_log,
+        f"[{status}] hydro/{res.relative_path}  {res.feature_count:,} hydro plants",
+        "success",
+    )
+    return {"cache_type": hydro.CACHE_TYPE, **_result_payload(res)}
 
 
 def handle_download_alpr_cameras(params: dict[str, Any]) -> dict[str, Any]:
@@ -584,6 +602,7 @@ _DISPATCH: dict[str, Any] = {
     f"{NAMESPACE}.DownloadEpaCleanups": handle_download_epa_cleanups,
     f"{NAMESPACE}.DownloadTri": handle_download_tri,
     f"{NAMESPACE}.DownloadNuclearReactors": handle_download_nuclear_reactors,
+    f"{NAMESPACE}.DownloadHydroPlants": handle_download_hydro_plants,
     f"{NAMESPACE}.DownloadALPRCameras": handle_download_alpr_cameras,
     f"{NAMESPACE}.DownloadDataCenters": handle_download_data_centers,
     f"{NAMESPACE}.DownloadAquifers": handle_download_aquifers,

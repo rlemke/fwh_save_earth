@@ -167,6 +167,27 @@ namespace save_earth.sources {
         used_mock: Boolean
     ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
 
+    /** Download every hydroelectric power plant worldwide from OSM
+      * (`plant:source=hydro`, polygon centroids via Overpass `out center`).
+      * Each plant keeps all of its OSM tags, plus a derived `hydro_type`
+      * (storage / run_of_river / pumped_storage / unspecified, from
+      * `plant:method`) and `capacity_mw` (`plant:output:electricity` in MW).
+      * Turbines (`generator:source=hydro`) are left out: they sit inside the
+      * plant polygons and would draw each dam several times. */
+    event facet DownloadHydroPlants(
+        force: Boolean = false,
+        use_mock: Boolean = false
+    ) => (
+        cache_type: String,
+        relative_path: String,
+        feature_count: Int,
+        size_bytes: Int,
+        sha256: String,
+        source_url: String,
+        was_cached: Boolean,
+        used_mock: Boolean
+    ) with RetryPolicy() with Effect(kind = "external") with Cost(tier = "moderate")
+
     /** Download worldwide ALPR surveillance camera locations from OSM (DeFlock).
       *
       * Queries the OpenStreetMap Overpass API for every node tagged
@@ -822,6 +843,54 @@ namespace save_earth.workflows {
             status = "completed",
             html_path = map.html_path,
             detail = "nuclear map with " ++ reactors.feature_count ++ " reactor/plant feature(s)"
+        )
+    }
+
+    /** Build an interactive world map of hydroelectric dams and plants.
+      *
+      * Downloads every OSM hydro plant, then renders four toggleable layers
+      * (reservoir dams, run-of-river, pumped storage, type not recorded),
+      * each dot sized by capacity. Click a plant for its name, type,
+      * capacity, operator, opening date and OSM link. */
+    workflow BuildHydroDamMap(
+        center_lat: Double = 20.0,
+        center_lon: Double = 10.0,
+        zoom: Double = 2.0,
+        use_mock: Boolean = false
+    ) => (
+        status: String,
+        html_path: String,
+        detail: String
+    ) andThen {
+        plants = DownloadHydroPlants(
+            use_mock = $.use_mock
+        ) catch {
+            yield BuildHydroDamMap(
+                status = "failed",
+                html_path = "",
+                detail = "hydro plant download failed"
+            )
+        }
+        map = BuildMap(
+            region = "hydro",
+            center_lat = $.center_lat,
+            center_lon = $.center_lon,
+            zoom = $.zoom,
+            only_layers = "hydro-*",
+            attribution_workflow = "save_earth.workflows.BuildHydroDamMap",
+            attribution_ffl_url = "https://github.com/rlemke/fwh_save_earth/blob/main/src/save_earth/ffl/save_earth.ffl",
+            description = "Hydroelectric dams and power plants worldwide, from OpenStreetMap. Dots are sized by capacity and coloured by type: reservoir dams, run-of-river, pumped storage, and plants whose type is not recorded in OSM (about half). Click a plant for its name, capacity, operator and opening date."
+        ) after plants catch {
+            yield BuildHydroDamMap(
+                status = "failed",
+                html_path = "",
+                detail = "map build failed"
+            )
+        }
+        yield BuildHydroDamMap(
+            status = "completed",
+            html_path = map.html_path,
+            detail = "hydro map with " ++ plants.feature_count ++ " plant(s)"
         )
     }
 

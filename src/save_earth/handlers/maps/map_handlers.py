@@ -16,6 +16,7 @@ from ..shared.save_earth_utils import (
     enclaves,
     get_storage,
     power,
+    hydro,
     lgbtq,
     map_render,
     nuclear,
@@ -98,6 +99,44 @@ _NUCLEAR_LAYER = map_render.LayerSpec(
     radius=8,
     description_fields=None,
 )
+
+# Hydroelectric plants (OSM via Overpass) — one cached file, one toggleable layer
+# per type via the shared-source filter, each dot sized by capacity. The popup
+# is curated (not every OSM tag): name, type, capacity, operator, opening date,
+# the raw output tag as mapped, and the OSM link for everything else.
+_HYDRO_POPUP = [
+    "name:en",
+    "plant_type",
+    "capacity_mw",
+    "plant:output:electricity",
+    "operator",
+    "start_date",
+    "wikipedia",
+    "osm_url",
+]
+_HYDRO_LAYERS = [
+    map_render.LayerSpec(
+        name=f"hydro-{kind.replace('_', '-')}",
+        title=hydro.TYPE_LABELS[kind],
+        source_cache_type=hydro.CACHE_TYPE,
+        source_relative_path=hydro.RELATIVE_PATH,
+        color=color,
+        filter_field="hydro_type",
+        filter_value=kind,
+        # 1 MW mini-hydro → 3 px, 300 MW → 7 px, 3 GW+ (Itaipu, Three Gorges) → 15 px
+        magnitude_field="capacity_mw",
+        magnitude_stops=(1.0, 300.0, 3000.0),
+        magnitude_radii=(3.0, 7.0, 15.0),
+        magnitude_color=False,
+        description_fields=_HYDRO_POPUP,
+    )
+    for kind, color in (
+        ("storage", "#1565c0"),
+        ("run_of_river", "#00acc1"),
+        ("pumped_storage", "#8e24aa"),
+        ("unspecified", "#f57c00"),
+    )
+]
 
 # ALPR surveillance cameras (OSM via DeFlock). One cached file → a density heatmap
 # + a per-vendor split (Flock / Motorola / other), all sharing the same inlined
@@ -606,6 +645,7 @@ def handle_build_map(params: dict[str, Any]) -> dict[str, Any]:
     candidates = (
         [
             _NUCLEAR_LAYER,
+            *_HYDRO_LAYERS,
             *_ALPR_LAYERS,
             _NUCLEAR_TEST_LAYER,
             _MISSILE_SILO_LAYER,
