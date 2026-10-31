@@ -66,6 +66,7 @@ The full workflow catalog (all `save_earth.workflows.*`):
 | `BuildGlobalMap(openlittermap_zoom, include_brownfields, use_mock)` | OLM + EPA Superfund + Brownfields → auto-discover all | The combined environmental map; parallel downloads, per-download `catch`. |
 | `BuildRegionalMap(region_key, openlittermap_zoom, center_lat, center_lon, zoom, use_mock)` | OLM (tighter zoom) + Superfund | Country/state framing; chains into the global build. |
 | `BuildNuclearReactorMap(...)` | `nuclear-reactors` | Single OSM layer, full-tag popups. |
+| `BuildHydroDamMap(...)` | `hydro-*` | Four toggleable layers by `plant:method` from one file; dots sized by capacity. |
 | `BuildALPRCameraMap(...)` | `alpr-*` | Vendor split + heatmap; `max_inline_features=130000`. |
 | `BuildNuclearSitesMap(...)` | `nuclear-test-sites,missile-silos` | Two toggleable layers from one file. |
 | `BuildScenicHistoricRoadsMap(region, ...)` | `roads-<region>-*` | Two toggleable LINE layers from one file; `region` drives download + layer pick (`north-america` default, `world` supported). |
@@ -78,6 +79,8 @@ The full workflow catalog (all `save_earth.workflows.*`):
 | `BuildTeslaChargerMap(...)` | `tesla` | OSM Tesla chargers. |
 | `BuildTelescopeMap(...)` | `telescopes` | OSM research telescopes. |
 | `BuildSeismicMap(...)` | `faults,earthquakes` | Faults (lines) + quakes (magnitude circles). |
+| `BuildWildfireMap(..., max_inline_features)` | `fire-*` | NASA FIRMS thermal anomalies, past 24h; see [wildfire](wildfire.md). |
+| `BuildUsFireMap(..., max_inline_features)` | `fire-perimeter-*,usfire-*` | US incident perimeters + detections; see [wildfire](wildfire.md). |
 | `BuildSemiconductorMap(force)` | `semiconductor-fabs` | Per-country fan-out + Wikidata union. |
 | `FetchFabsByCountry(countries, force)` | — | `foreach` fan-out helper (returns `fab_paths`). |
 | `ScanTransmissionTiles(tiles)` | — | `foreach` fan-out demo (not used by `BuildPowerMap`). |

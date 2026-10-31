@@ -3,8 +3,8 @@
 **Namespace:** `save_earth.sources` (+ `save_earth.maps`) ·
 **FFL:** `src/save_earth/ffl/save_earth.ffl` ·
 **Handlers:** `src/save_earth/handlers/sources/source_handlers.py` ·
-**Tools:** `src/save_earth/tools/_save_earth_tools/{nuclear,alpr,datacenters,nuclear_sites,volcanoes,lgbtq,telescope,tesla,aquifers}.py` ·
-**Tests:** `tests/test_alpr.py`, `tests/test_alpr_map_render.py`, `tests/test_nuclear_sites.py`, `tests/test_datacenters_aquifers.py`
+**Tools:** `src/save_earth/tools/_save_earth_tools/{nuclear,hydro,alpr,datacenters,nuclear_sites,volcanoes,lgbtq,telescope,tesla,aquifers}.py` ·
+**Tests:** `tests/test_alpr.py`, `tests/test_hydro.py`, `tests/test_alpr_map_render.py`, `tests/test_nuclear_sites.py`, `tests/test_datacenters_aquifers.py`
 
 ## Overview
 
@@ -44,6 +44,7 @@ out per country, semiconductor fabs, does so for query-size reasons, not through
 | Source | `cache_type` / file | OSM selector | Derived fields / notes |
 |---|---|---|---|
 | Nuclear reactors (`nuclear.py`) | `nuclear` / `reactors.geojson` | `generator:source=nuclear` (a reactor) or `plant:source=nuclear` (a station) | Full tags; `_NUCLEAR_LAYER` popup shows all. |
+| Hydro plants (`hydro.py`) | `hydro` / `plants.geojson` | `plant:source=hydro` (turbines `generator:source=hydro` deliberately left out — they sit inside the plants) | derived `hydro_type` (storage / run_of_river / pumped_storage / unspecified, from `plant:method`) → four layers from one file; `capacity_mw`; 16,224 plants (2026-10-19), about half with no type recorded. An Overpass truncation remark is refused, not cached. |
 | ALPR cameras (`alpr.py`) | `alpr` / `cameras.geojson` | `man_made=surveillance` + `surveillance:type=ALPR` (DeFlock) | derived `camera_vendor` (flock/motorola/other); ~145k nodes (counted 2026-08-21). Camera **locations only** — no video/plate data. |
 | Data centers (`datacenters.py`) | `datacenters` / `datacenters.geojson` | `man_made=data_center` / telecom, continental-US bbox | footprints centroided; existing/mapped facilities only. |
 | Nuclear sites (`nuclear_sites.py`) | `nuclear-sites` / `nuclear_sites.geojson` | `military=nuclear_explosion_site` + `bunker_type=missile_silo` | derived `site_type` (test_site / missile_silo) → two toggleable layers from one file. |
@@ -53,9 +54,9 @@ out per country, semiconductor fabs, does so for query-size reasons, not through
 | Tesla chargers (`tesla.py`) | `tesla` / `tesla_chargers.geojson` | `amenity=charging_station` branded/networked/socket-Tesla | `feature_kind` = supercharger / charger. |
 | Aquifers (`aquifers.py`) | `aquifers` / `aquifers.geojson` | USGS ArcGIS FeatureServer (principal-aquifer polygons, rock-only excluded) | polygon `fill` backdrop for data centers; fields `AQ_NAME`, `ROCK_TYPE`. |
 
-The **ALPR** and **nuclear-sites** layers use the renderer's `filter_field` /
+The **ALPR**, **hydro** and **nuclear-sites** layers use the renderer's `filter_field` /
 `filter_value` to split one cached file into several styled layers without
-duplicating features (`camera_vendor`, `site_type`); ALPR additionally has a
+duplicating features (`camera_vendor`, `hydro_type`, `site_type`); ALPR additionally has a
 `geometry="heatmap"` density layer drawn under the vendor dots. See
 [map-rendering](map-rendering.md).
 
@@ -69,10 +70,10 @@ duplicating features (`camera_vendor`, `site_type`); ALPR additionally has a
 
 All event facets carry `with RetryPolicy() with Effect(kind="external") with
 Cost(tier="moderate")` and return the standard `SourceFetchResult`:
-`DownloadNuclearReactors`, `DownloadALPRCameras`, `DownloadDataCenters`,
+`DownloadNuclearReactors`, `DownloadHydroPlants`, `DownloadALPRCameras`, `DownloadDataCenters`,
 `DownloadNuclearSites`, `DownloadScenicHistoricRoads`, `DownloadAquifers`, `DownloadVolcanoes`,
 `DownloadLgbtqVenues`, `DownloadTelescopes`, `DownloadTeslaChargers` — each with a
-`force` + `use_mock` param. Workflows: `BuildNuclearReactorMap`,
+`force` + `use_mock` param. Workflows: `BuildNuclearReactorMap`, `BuildHydroDamMap`,
 `BuildALPRCameraMap`, `BuildNuclearSitesMap`, `BuildDataCenterWaterMap`,
 `BuildVolcanoMap`, `BuildLgbtqVenueMap`, `BuildTelescopeMap`,
 `BuildTeslaChargerMap`, `BuildScenicHistoricRoadsMap`.
@@ -82,7 +83,7 @@ Cost(tier="moderate")` and return the standard `SourceFetchResult`:
 - Cache namespace `save-earth`; one `cache_type` per source (table above); each a
   single GeoJSON + `.meta.json` sidecar under `$FW_CACHE_ROOT/save-earth/<type>/`.
 - Rendered maps at `save-earth/maps/<region>/index.html` (region = `nuclear`,
-  `alpr`, `data-centers`, `nuclear-sites`, `volcanoes`, `lgbtq`, `telescopes`,
+  `hydro`, `alpr`, `data-centers`, `nuclear-sites`, `volcanoes`, `lgbtq`, `telescopes`,
   `tesla`).
 - Backend per `FW_STORAGE`.
 

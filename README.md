@@ -12,11 +12,13 @@ datasets into an interactive map:
   - **EPA Toxic Release Inventory (TRI)** — facility-level toxic release points
   - **OSM nuclear** — worldwide nuclear reactors + plants from the OpenStreetMap
     Overpass API (every OSM tag kept verbatim)
+  - **OSM hydroelectric plants** — every `plant:source=hydro` station worldwide
+    (16,224 on 2026-10-19), typed by `plant:method` and sized by capacity
   - **OSM volcanoes** — major (notable) volcanoes from OSM
   - **OSM LGBTQ+ venues** — LGBTQ+ bars, pubs, clubs & restaurants from OSM
   - **OSM research telescopes** + **Tesla charging stations** — from OSM
   - **OSM ethnic & cultural enclaves** — heritage-named neighbourhoods
-    (Chinatown, Japantown, Little Italy, Koreatown, …; 22 heritages, each a
+    (Chinatown, Japantown, Little Italy, Koreatown, …; 24 heritages, each a
     word-anchored name pattern over OSM `place`/`neighbourhood` features)
   - **USGS earthquakes** — recent significant quakes (M4.5+, past 30 days) from
     the USGS real-time GeoJSON feed (properties verbatim + derived `depth_km`)
@@ -30,8 +32,8 @@ datasets into an interactive map:
     to fan out" case, because Overpass rate-limits ~2 concurrent queries per IP
     and the whole fleet shares one egress IP, so wide fan-out only thrashes.
 - **Map build** — `save_earth.maps.BuildMap` auto-discovers every cached layer
-  and renders a self-contained MapLibre HTML bundle (CARTO Voyager basemap,
-  no API key, works from `file://`). Layers render as points (circles) or
+  and renders a self-contained MapLibre HTML bundle (OpenStreetMap raster
+  basemap, no API key, works from `file://`; repoint with `FW_BASEMAP_URL`). Layers render as points (circles) or
   **lines** (faults/boundaries); a point layer may scale its radius + colour by
   a numeric property (e.g. earthquake **magnitude**). Click popups surface a
   feature's full `properties` (a `name` property is listed first); a layer with
@@ -40,9 +42,10 @@ datasets into an interactive map:
 - **Workflows** — `BuildGlobalMap` / `BuildRegionalMap` / `BuildNuclearReactorMap`
   / `BuildVolcanoMap` / `BuildLgbtqVenueMap` / `BuildSeismicMap` (earthquakes
   over the fault lines) / `BuildEnclaveMap` (heritage-named neighbourhoods) /
-  `BuildPowerMap` (plants by fuel + ≥500 kV transmission) download in parallel
-  (with `catch` blocks for graceful partial failure) and chain into the map
-  build.
+  `BuildPowerMap` (plants by fuel + ≥500 kV transmission) / `BuildHydroDamMap`
+  / `BuildWildfireMap` and more (full list in
+  [docs/workflows.md](docs/workflows.md)) download in parallel (with `catch`
+  blocks for graceful partial failure) and chain into the map build.
 - **Storage** — caches + map outputs follow `FW_STORAGE`: `local`, `hdfs`, or
   `s3` (the fleet MinIO). Downloads stage locally and finalize onto the active
   backend, so an object store needs no shared filesystem.
@@ -135,7 +138,7 @@ making it discoverable by any Facetwork installation in the same environment.
 Or, from a Facetwork checkout, use the registry-driven helper:
 
 ```bash
-scripts/install-example save-earth --check
+fw install domain save-earth --check
 ```
 
 ## Run from a Facetwork checkout
@@ -163,7 +166,7 @@ fwh_save_earth/
 │   ├── ffl/save_earth.ffl               # schemas, mixins, facets, workflows
 │   ├── handlers/
 │   │   ├── __init__.py                  # register_all_registry_handlers(runner)
-│   │   ├── sources/source_handlers.py   # Download{OpenLitterMap,EpaCleanups,Tri,NuclearReactors,Volcanoes,LgbtqVenues,Earthquakes,Faults,EthnicEnclaves,PowerPlants,Transmission}
+│   │   ├── sources/source_handlers.py   # every Download* source facet (one per source)
 │   │   ├── maps/map_handlers.py         # BuildMap
 │   │   └── shared/save_earth_utils.py   # sys.path shim re-exporting tools/_save_earth_tools
 │   └── tools/                           # CLIs + shell wrappers, backed by tools/_save_earth_tools/
@@ -172,12 +175,16 @@ fwh_save_earth/
 
 ## Tools
 
-Each source has a Python CLI + shell wrapper under `src/save_earth/tools/`:
+These sources have a Python CLI + shell wrapper under `src/save_earth/tools/`
+(the rest are reachable only through their FFL facets):
 
 ```bash
 src/save_earth/tools/download-openlittermap.sh
 src/save_earth/tools/download-epa-cleanups.sh
 src/save_earth/tools/download-tri.sh
+src/save_earth/tools/download-nuclear-reactors.sh
+src/save_earth/tools/download-alpr-cameras.sh
+src/save_earth/tools/download-wildfires.sh
 src/save_earth/tools/build-save-earth-map.sh
 ```
 

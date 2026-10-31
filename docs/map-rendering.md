@@ -11,7 +11,8 @@
 This is the **flagship** feature: every workflow in the repo ends in one
 `save_earth.maps.BuildMap` step. `BuildMap` auto-discovers the cached GeoJSON
 layers, reads each one, and stitches them into a **single self-contained MapLibre
-GL JS HTML page** — CARTO Voyager basemap (no API key, works from `file://`),
+GL JS HTML page** — OpenStreetMap raster basemap (no API key, works from
+`file://`; `FW_BASEMAP_URL` / `FW_BASEMAP_ATTRIBUTION` repoint it),
 per-layer visibility toggles, a name search, a bottom-right legend with per-layer
 feature counts, click popups over a feature's `properties`, and an "About this
 data" modal. The HTML inlines every layer's GeoJSON directly as a JS constant, so
@@ -93,7 +94,8 @@ source once and anchors line features (faults) at their first vertex.
 - **Python:** stdlib only (`json`, `hashlib`, `html`, `textwrap`, `dataclasses`) —
   no `requests` here; the renderer only reads already-cached files.
 - **Browser (runtime, via CDN in the emitted HTML):** `maplibre-gl@4.7.1` JS + CSS
-  from unpkg, and CARTO Voyager raster tiles. These are the only external fetches
+  from unpkg, and OpenStreetMap raster tiles (CARTO Voyager, the old default,
+  now watermarks every tile "API KEY REQUIRED" while still answering 200). These are the only external fetches
   the page makes. No osmium/shapely/GDAL anywhere in this repo.
 
 ## Facets & workflows
